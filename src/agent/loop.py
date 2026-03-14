@@ -59,16 +59,15 @@ class AgentLoop:
         # Shared market data feed
         self.feed = MarketDataFeed(cfg.exchange, cfg.trading)
 
-        # Build one pod per strategy, each with equal capital
-        pod_strategies = list(STRATEGY_REGISTRY.keys())
-        # Remove "consensus" — we're running individual strategies as pods
-        pod_strategies = [s for s in pod_strategies if s != "consensus"]
+        # Build pods from both groups: Technical + Fundamental
+        from agent.strategies.loader import TECHNICAL_STRATEGIES, FUNDAMENTAL_STRATEGIES
 
-        num_pods = len(pod_strategies)
-        capital_per_pod = cfg.paper.starting_balance / num_pods
+        capital_per_pod = 2500.0  # fixed $2,500 per pod
 
         self.pods: list[Pod] = []
-        for strategy_name in pod_strategies:
+
+        # Technical pods ($2,500 each)
+        for strategy_name in TECHNICAL_STRATEGIES:
             strategy = load_strategy(strategy_name, cfg.strategy.params)
             executor = PaperExecutor(capital_per_pod)
             portfolio = PortfolioManager(cfg.risk, executor)
@@ -79,23 +78,37 @@ class AgentLoop:
                 portfolio=portfolio,
             ))
 
-        self.total_starting_balance = cfg.paper.starting_balance
+        # Fundamental pods ($2,500 each)
+        for strategy_name in FUNDAMENTAL_STRATEGIES:
+            strategy = load_strategy(strategy_name, cfg.strategy.params)
+            executor = PaperExecutor(capital_per_pod)
+            portfolio = PortfolioManager(cfg.risk, executor)
+            self.pods.append(Pod(
+                name=strategy_name,
+                strategy=strategy,
+                executor=executor,
+                portfolio=portfolio,
+            ))
+
+        self.total_starting_balance = capital_per_pod * len(self.pods)
 
         # Initialize shared state
         store.update(
             status="initializing",
             mode=cfg.mode,
             exchange=cfg.exchange.name,
-            strategy="multi_pod",
+            strategy="multi_pod_8",
             timeframe=cfg.trading.default_timeframe,
             pairs=cfg.trading.pairs,
         )
 
         log.info(
             "agent_loop.pods_created",
-            num_pods=num_pods,
-            capital_per_pod=round(capital_per_pod, 2),
-            strategies=[p.name for p in self.pods],
+            num_pods=len(self.pods),
+            capital_per_pod=capital_per_pod,
+            technical=[p.name for p in self.pods if p.name in TECHNICAL_STRATEGIES],
+            fundamental=[p.name for p in self.pods if p.name in FUNDAMENTAL_STRATEGIES],
+            total_capital=self.total_starting_balance,
         )
 
     def start(self) -> None:

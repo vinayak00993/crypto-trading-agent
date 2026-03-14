@@ -154,7 +154,14 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 let equityChart = null;
 let currentMode = 'simple';
 
-const POD_COLORS = { sma_crossover: '#58a6ff', rsi: '#3fb950', macd: '#bc8cff', bollinger_bands: '#d29922' };
+const POD_COLORS = {
+  // Technical (cool colors)
+  sma_crossover: '#58a6ff', rsi: '#3fb950', macd: '#bc8cff', bollinger_bands: '#d29922',
+  // Fundamental (warm colors)
+  fear_greed: '#f85149', network_activity: '#f0883e', volume_momentum: '#db61a2', dca_baseline: '#8b949e'
+};
+const TECHNICAL = ['sma_crossover', 'rsi', 'macd', 'bollinger_bands'];
+const FUNDAMENTAL = ['fear_greed', 'network_activity', 'volume_momentum', 'dca_baseline'];
 
 function setMode(mode) {
   currentMode = mode;
@@ -218,19 +225,29 @@ function updatePodRow(pods) {
   const rankMap = {};
   sorted.forEach(([name], i) => { rankMap[name] = i + 1; });
 
-  el.innerHTML = entries.map(([name, pod]) => {
-    const pnlClass = (pod.pnl || 0) >= 0 ? 'positive' : 'negative';
-    const sign = (pod.pnl || 0) >= 0 ? '+' : '';
-    const rank = rankMap[name];
-    const rankClass = rank === 1 ? 'rank-1' : 'rank-other';
-    const color = POD_COLORS[name] || '#8b949e';
-    return `<div class="pod-card" style="border-top: 3px solid ${color}">
-      <span class="pod-rank ${rankClass}">#${rank}</span>
-      <div class="pod-name">${name.replace('_', ' ')}</div>
-      <div class="pod-value ${pnlClass}">${sign}${(pod.pnl_pct||0).toFixed(2)}%</div>
-      <div class="pod-detail">$${(pod.total_value||0).toLocaleString(undefined,{minimumFractionDigits:2})} | ${pod.total_trades||0} trades | ${pod.open_positions||0} open</div>
-    </div>`;
-  }).join('');
+  const techPods = entries.filter(([name]) => TECHNICAL.includes(name));
+  const fundPods = entries.filter(([name]) => FUNDAMENTAL.includes(name));
+
+  function renderPods(list) {
+    return list.map(([name, pod]) => {
+      const pnlClass = (pod.pnl || 0) >= 0 ? 'positive' : 'negative';
+      const sign = (pod.pnl || 0) >= 0 ? '+' : '';
+      const rank = rankMap[name];
+      const rankClass = rank === 1 ? 'rank-1' : 'rank-other';
+      const color = POD_COLORS[name] || '#8b949e';
+      return `<div class="pod-card" style="border-top: 3px solid ${color}">
+        <span class="pod-rank ${rankClass}">#${rank}</span>
+        <div class="pod-name">${name.replace(/_/g, ' ')}</div>
+        <div class="pod-value ${pnlClass}">${sign}${(pod.pnl_pct||0).toFixed(2)}%</div>
+        <div class="pod-detail">$${(pod.total_value||0).toLocaleString(undefined,{minimumFractionDigits:2})} | ${pod.total_trades||0} trades | ${pod.open_positions||0} open</div>
+      </div>`;
+    }).join('');
+  }
+
+  let html = '';
+  if (techPods.length) html += `<div style="grid-column:1/-1;font-size:11px;font-weight:700;color:#58a6ff;text-transform:uppercase;letter-spacing:1px;margin-top:4px">Technical Strategies</div>` + renderPods(techPods);
+  if (fundPods.length) html += `<div style="grid-column:1/-1;font-size:11px;font-weight:700;color:#f0883e;text-transform:uppercase;letter-spacing:1px;margin-top:8px">Fundamental Strategies</div>` + renderPods(fundPods);
+  el.innerHTML = html;
 }
 
 function updatePositions(positions) {

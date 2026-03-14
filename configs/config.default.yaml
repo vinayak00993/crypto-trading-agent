@@ -54,7 +54,7 @@ risk:
 
 # --- Paper Trading ---
 paper:
-  starting_balance: 10000.0     # Simulated starting capital in base_currency
+  starting_balance: 20000.0     # $2,500 x 8 pods = $20,000 total
 
 # --- Logging ---
 logging:
