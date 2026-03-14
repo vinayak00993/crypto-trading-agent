@@ -80,7 +80,7 @@ def test_spike_triggers_sell():
     candles = _make_candles(prices)
     result = strategy.evaluate("BTC/USDT", candles)
 
-    assert result.signal in (Signal.BUY, Signal.SELL)  # extreme moves trigger either
+    assert result.signal == Signal.SELL
     assert result.metadata["sell_count"] >= 1
 
 

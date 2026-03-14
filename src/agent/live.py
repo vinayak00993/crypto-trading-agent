@@ -55,8 +55,12 @@ def setup_logging(level: str, fmt: str, log_file: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run agent with live dashboard")
-    parser.add_argument("--port", type=int, default=5555, help="Dashboard port (default: 5555)")
+    parser.add_argument("--port", type=int, default=None, help="Dashboard port (default: 5555)")
     args = parser.parse_args()
+
+    # Railway/cloud providers set PORT env variable
+    import os
+    port = args.port or int(os.environ.get("PORT", 5555))
 
     cfg = load_config()
     setup_logging(cfg.logging.level, cfg.logging.format, cfg.logging.log_file)
@@ -67,9 +71,9 @@ def main() -> None:
 
     # Start the dashboard web server in a background thread
     from agent.server import start_server
-    start_server(port=args.port)
-    log.info("dashboard.started", url=f"http://localhost:{args.port}")
-    print(f"\n  >>> Live Dashboard: http://localhost:{args.port}")
+    start_server(port=port)
+    log.info("dashboard.started", url=f"http://localhost:{port}")
+    print(f"\n  >>> Live Dashboard: http://localhost:{port}")
     print(f"  >>> Open this URL in your browser!\n")
 
     if cfg.mode == "live":
