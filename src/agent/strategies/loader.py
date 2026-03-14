@@ -15,6 +15,7 @@ from agent.strategies.sma_crossover import SMACrossoverStrategy
 from agent.strategies.rsi import RSIStrategy
 from agent.strategies.macd import MACDStrategy
 from agent.strategies.bollinger_bands import BollingerBandsStrategy
+from agent.strategies.consensus import ConsensusStrategy
 
 # Add new strategies here
 STRATEGY_REGISTRY: dict[str, type[BaseStrategy]] = {
@@ -22,6 +23,7 @@ STRATEGY_REGISTRY: dict[str, type[BaseStrategy]] = {
     "rsi": RSIStrategy,
     "macd": MACDStrategy,
     "bollinger_bands": BollingerBandsStrategy,
+    "consensus": ConsensusStrategy,
 }
 
 

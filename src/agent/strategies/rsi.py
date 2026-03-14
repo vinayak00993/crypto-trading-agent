@@ -57,8 +57,6 @@ class RSIStrategy(BaseStrategy):
 
         rs = gain / loss.replace(0, float("nan"))
         rsi = 100 - (100 / (1 + rs))
-        rsi = rsi.where(~((loss == 0) & (gain > 0)), 100.0)  # all gains -> 100
-        rsi = rsi.fillna(50.0)  # no movement (gain=0, loss=0) -> 50
 
         current_rsi = float(rsi.iloc[-1])
         prev_rsi = float(rsi.iloc[-2])

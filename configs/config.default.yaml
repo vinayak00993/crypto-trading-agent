@@ -19,21 +19,36 @@ trading:
     - BTC/USDT
     - ETH/USDT
   base_currency: USDT
-  default_timeframe: 1h         # Candle interval: 1m, 5m, 15m, 1h, 4h, 1d
+  default_timeframe: 5m         # 5-minute candles for faster signals
 
 # --- Strategy ---
+# "consensus" runs all 4 strategies and trades when 2+ agree.
+# Other options: sma_crossover, rsi, macd, bollinger_bands
 strategy:
-  name: sma_crossover           # Which strategy class to load
+  name: consensus
   params:
-    fast_period: 10
-    slow_period: 30
+    min_agree: 2                # How many strategies must agree (2 = majority)
+    # SMA Crossover params (tuned for 5m candles)
+    fast_period: 5
+    slow_period: 15
+    # RSI params (wider thresholds = more signals)
+    rsi_period: 14
+    rsi_oversold: 35
+    rsi_overbought: 65
+    # MACD params (shorter periods = faster signals)
+    macd_fast: 8
+    macd_slow: 21
+    macd_signal: 5
+    # Bollinger Bands params
+    bb_period: 15
+    bb_std: 2.0
 
 # --- Risk Management ---
 risk:
-  max_position_pct: 5.0         # Max % of portfolio in a single trade
+  max_position_pct: 10.0        # Max % of portfolio in a single trade
   max_open_positions: 3         # Max simultaneous open positions
-  stop_loss_pct: 3.0            # Auto stop-loss trigger (%)
-  take_profit_pct: 6.0          # Auto take-profit trigger (%)
+  stop_loss_pct: 2.0            # Auto stop-loss trigger (%)
+  take_profit_pct: 3.0          # Auto take-profit trigger (%)
   max_daily_loss_pct: 10.0      # Kill switch: stop trading for the day
 
 # --- Paper Trading ---
@@ -48,4 +63,4 @@ logging:
 
 # --- Scheduling ---
 scheduler:
-  strategy_interval_seconds: 60 # How often to re-evaluate the strategy
+  strategy_interval_seconds: 30 # Check every 30 seconds for faster trading
