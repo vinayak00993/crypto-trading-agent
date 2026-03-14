@@ -184,30 +184,31 @@ class AgentLoop:
             for pair, price in current_prices.items():
                 ml.record_price(pair, price, self.tick_count)
 
-            # Feed recent signals from other pods
+            # Feed recent signals from other pods (from this tick only)
             snapshot = store.snapshot()
-            for sig in snapshot.get("signals", []):
+            recent_signals = [s for s in snapshot.get("signals", []) if s.get("pod") != "ml_meta_learner"]
+            for sig in recent_signals[-24:]:  # last 24 = 8 pods x 3 pairs
                 pod_name = sig.get("pod", "")
-                if pod_name and pod_name != "ml_meta_learner":
-                    pair = sig.get("pair", "")
-                    signal = sig.get("signal", "HOLD")
-                    price = current_prices.get(pair, 0)
-                    if price > 0:
-                        ml.record_signal(pod_name, pair, signal, price, self.tick_count)
+                pair = sig.get("pair", "")
+                signal = sig.get("signal", "HOLD")
+                confidence = sig.get("confidence", 0.0)
+                price = current_prices.get(pair, 0)
+                if pod_name and pair and price > 0:
+                    ml.record_signal(pod_name, pair, signal, confidence, price, self.tick_count)
 
             # Now run the ML pod
             self._run_pod(self.ml_pod, current_prices, all_candles)
 
-            # Log ML phase and rankings
+            # Log ML status
             rankings = ml.get_pod_rankings()
             if rankings:
-                top3 = rankings[:3]
                 log.info(
                     "ml.status",
                     phase=ml.phase,
-                    tick=self.tick_count,
-                    top_pods=[(r["name"], f"{r['accuracy']}%", f"w={r['weight']}") for r in top3],
-                    pending_evals=len(ml._pending_evals),
+                    samples=len(ml._training_samples),
+                    model_trained=ml.model.is_trained,
+                    model_accuracy=round(ml.model.accuracy, 3),
+                    top_pods=[(r["name"], f"{r['accuracy']}%") for r in rankings[:3]],
                 )
 
         # Step 5: Update combined portfolio state

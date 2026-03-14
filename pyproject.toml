@@ -35,6 +35,9 @@ dependencies = [
 
     # --- Scheduling ---
     "apscheduler>=3.10",          # Task scheduling for periodic strategy runs
+
+    # --- Machine Learning ---
+    "scikit-learn>=1.4",          # ML model for meta-learner pod
 ]
 
 [project.optional-dependencies]
