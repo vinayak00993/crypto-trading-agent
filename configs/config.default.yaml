@@ -19,7 +19,6 @@ trading:
     - BTC/USDT
     - ETH/USDT
     - SOL/USDT
-    - APT/USDT
   base_currency: USDT
   default_timeframe: 5m         # 5-minute candles for faster signals
 
