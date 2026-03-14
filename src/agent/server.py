@@ -158,10 +158,13 @@ const POD_COLORS = {
   // Technical (cool colors)
   sma_crossover: '#58a6ff', rsi: '#3fb950', macd: '#bc8cff', bollinger_bands: '#d29922',
   // Fundamental (warm colors)
-  fear_greed: '#f85149', network_activity: '#f0883e', volume_momentum: '#db61a2', dca_baseline: '#8b949e'
+  fear_greed: '#f85149', network_activity: '#f0883e', volume_momentum: '#db61a2', dca_baseline: '#8b949e',
+  // ML (gold)
+  ml_meta_learner: '#e3b341'
 };
 const TECHNICAL = ['sma_crossover', 'rsi', 'macd', 'bollinger_bands'];
 const FUNDAMENTAL = ['fear_greed', 'network_activity', 'volume_momentum', 'dca_baseline'];
+const ML = ['ml_meta_learner'];
 
 function setMode(mode) {
   currentMode = mode;
@@ -247,6 +250,8 @@ function updatePodRow(pods) {
   let html = '';
   if (techPods.length) html += `<div style="grid-column:1/-1;font-size:11px;font-weight:700;color:#58a6ff;text-transform:uppercase;letter-spacing:1px;margin-top:4px">Technical Strategies</div>` + renderPods(techPods);
   if (fundPods.length) html += `<div style="grid-column:1/-1;font-size:11px;font-weight:700;color:#f0883e;text-transform:uppercase;letter-spacing:1px;margin-top:8px">Fundamental Strategies</div>` + renderPods(fundPods);
+  const mlPods = entries.filter(([name]) => ML.includes(name));
+  if (mlPods.length) html += `<div style="grid-column:1/-1;font-size:11px;font-weight:700;color:#e3b341;text-transform:uppercase;letter-spacing:1px;margin-top:8px">ML Meta-Learner (Autonomous)</div>` + renderPods(mlPods);
   el.innerHTML = html;
 }
 

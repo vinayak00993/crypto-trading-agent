@@ -55,7 +55,7 @@ risk:
 
 # --- Paper Trading ---
 paper:
-  starting_balance: 20000.0     # $2,500 x 8 pods = $20,000 total
+  starting_balance: 22500.0     # $2,500 x 9 pods = $22,500 total
 
 # --- Logging ---
 logging:

@@ -59,12 +59,13 @@ class AgentLoop:
         # Shared market data feed
         self.feed = MarketDataFeed(cfg.exchange, cfg.trading)
 
-        # Build pods from both groups: Technical + Fundamental
-        from agent.strategies.loader import TECHNICAL_STRATEGIES, FUNDAMENTAL_STRATEGIES
+        # Build pods from all groups: Technical + Fundamental + ML
+        from agent.strategies.loader import TECHNICAL_STRATEGIES, FUNDAMENTAL_STRATEGIES, ML_STRATEGIES
 
         capital_per_pod = 2500.0  # fixed $2,500 per pod
 
         self.pods: list[Pod] = []
+        self.ml_pod: Pod | None = None  # reference to the ML pod for feeding signals
 
         # Technical pods ($2,500 each)
         for strategy_name in TECHNICAL_STRATEGIES:
@@ -90,6 +91,20 @@ class AgentLoop:
                 portfolio=portfolio,
             ))
 
+        # ML Meta-Learner pod ($2,500)
+        for strategy_name in ML_STRATEGIES:
+            strategy = load_strategy(strategy_name, cfg.strategy.params)
+            executor = PaperExecutor(capital_per_pod)
+            portfolio = PortfolioManager(cfg.risk, executor)
+            ml_pod = Pod(
+                name=strategy_name,
+                strategy=strategy,
+                executor=executor,
+                portfolio=portfolio,
+            )
+            self.pods.append(ml_pod)
+            self.ml_pod = ml_pod
+
         self.total_starting_balance = capital_per_pod * len(self.pods)
 
         # Initialize shared state
@@ -97,7 +112,7 @@ class AgentLoop:
             status="initializing",
             mode=cfg.mode,
             exchange=cfg.exchange.name,
-            strategy="multi_pod_8",
+            strategy="multi_pod_9",
             timeframe=cfg.trading.default_timeframe,
             pairs=cfg.trading.pairs,
         )
@@ -108,6 +123,7 @@ class AgentLoop:
             capital_per_pod=capital_per_pod,
             technical=[p.name for p in self.pods if p.name in TECHNICAL_STRATEGIES],
             fundamental=[p.name for p in self.pods if p.name in FUNDAMENTAL_STRATEGIES],
+            ml=[p.name for p in self.pods if p.name in ML_STRATEGIES],
             total_capital=self.total_starting_balance,
         )
 
@@ -152,11 +168,49 @@ class AgentLoop:
         max_history = max(p.strategy.required_history for p in self.pods) + 10
         all_candles = self.feed.fetch_all_pairs(limit=max_history)
 
-        # Step 3: Run each pod independently
+        # Step 3: Run non-ML pods first, collect signals for the meta-learner
+        from agent.strategies.ml_meta_learner import MLMetaLearner
+
         for pod in self.pods:
+            if isinstance(pod.strategy, MLMetaLearner):
+                continue  # run ML pod last
             self._run_pod(pod, current_prices, all_candles)
 
-        # Step 4: Update combined portfolio state
+        # Step 4: Feed all signals to the ML meta-learner
+        if self.ml_pod and isinstance(self.ml_pod.strategy, MLMetaLearner):
+            ml: MLMetaLearner = self.ml_pod.strategy
+
+            # Feed current prices
+            for pair, price in current_prices.items():
+                ml.record_price(pair, price, self.tick_count)
+
+            # Feed recent signals from other pods
+            snapshot = store.snapshot()
+            for sig in snapshot.get("signals", []):
+                pod_name = sig.get("pod", "")
+                if pod_name and pod_name != "ml_meta_learner":
+                    pair = sig.get("pair", "")
+                    signal = sig.get("signal", "HOLD")
+                    price = current_prices.get(pair, 0)
+                    if price > 0:
+                        ml.record_signal(pod_name, pair, signal, price, self.tick_count)
+
+            # Now run the ML pod
+            self._run_pod(self.ml_pod, current_prices, all_candles)
+
+            # Log ML phase and rankings
+            rankings = ml.get_pod_rankings()
+            if rankings:
+                top3 = rankings[:3]
+                log.info(
+                    "ml.status",
+                    phase=ml.phase,
+                    tick=self.tick_count,
+                    top_pods=[(r["name"], f"{r['accuracy']}%", f"w={r['weight']}") for r in top3],
+                    pending_evals=len(ml._pending_evals),
+                )
+
+        # Step 5: Update combined portfolio state
         self._update_combined_state(current_prices)
 
     def _run_pod(

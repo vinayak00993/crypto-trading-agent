@@ -21,6 +21,7 @@ from agent.strategies.fear_greed import FearGreedStrategy
 from agent.strategies.network_activity import NetworkActivityStrategy
 from agent.strategies.volume_momentum import VolumeMomentumStrategy
 from agent.strategies.dca_baseline import DCABaselineStrategy
+from agent.strategies.ml_meta_learner import MLMetaLearner
 
 # All strategies
 STRATEGY_REGISTRY: dict[str, type[BaseStrategy]] = {
@@ -33,11 +34,13 @@ STRATEGY_REGISTRY: dict[str, type[BaseStrategy]] = {
     "network_activity": NetworkActivityStrategy,
     "volume_momentum": VolumeMomentumStrategy,
     "dca_baseline": DCABaselineStrategy,
+    "ml_meta_learner": MLMetaLearner,
 }
 
 # Group labels for the dashboard
 TECHNICAL_STRATEGIES = ["sma_crossover", "rsi", "macd", "bollinger_bands"]
 FUNDAMENTAL_STRATEGIES = ["fear_greed", "network_activity", "volume_momentum", "dca_baseline"]
+ML_STRATEGIES = ["ml_meta_learner"]
 META_STRATEGIES = ["consensus"]
 
 
