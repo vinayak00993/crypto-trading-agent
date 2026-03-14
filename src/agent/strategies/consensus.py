@@ -1,12 +1,14 @@
 """
-Consensus Strategy — runs ALL strategies and trades when multiple agree.
+Consensus Strategy — runs ALL strategies, trades when any has a strong signal.
 
-Instead of relying on a single strategy, the consensus approach runs
-SMA Crossover, RSI, MACD, and Bollinger Bands on every tick. It only
-executes a trade when a configurable number of strategies agree on the
-same signal.
+Evidence-backed approach (Bates & Granger 1969, forecast combination literature):
+- Runs 4 diverse strategies (trend, momentum, volatility) every tick
+- Equal weights — research shows this beats complex optimization
+- Trades when ANY strategy signals with confidence above a threshold
+- More strategies agreeing = higher confidence = larger position sizing potential
+- Filters out weak/noisy signals via confidence_threshold
 
-This reduces false signals and increases confidence in each trade.
+This produces frequent trades while avoiding low-quality signals.
 """
 
 from __future__ import annotations
@@ -27,11 +29,12 @@ log = structlog.get_logger()
 
 class ConsensusStrategy(BaseStrategy):
     """
-    Meta-strategy that runs all sub-strategies and trades on agreement.
+    Meta-strategy: runs all sub-strategies, trades on strong individual signals.
 
     Config params:
-        min_agree (int): Minimum strategies that must agree. Default 2.
-        fast_period (int): SMA fast period. Default 5 (tuned for 5m candles).
+        min_agree (int): Minimum strategies that must agree. Default 1.
+        confidence_threshold (float): Minimum confidence to act. Default 0.5.
+        fast_period (int): SMA fast period. Default 5.
         slow_period (int): SMA slow period. Default 15.
         rsi_period (int): RSI lookback. Default 14.
         rsi_oversold (float): RSI buy threshold. Default 35.
@@ -45,9 +48,10 @@ class ConsensusStrategy(BaseStrategy):
 
     def __init__(self, params: dict[str, Any]) -> None:
         super().__init__(params)
-        self.min_agree = params.get("min_agree", 2)
+        self.min_agree = params.get("min_agree", 1)
+        self.confidence_threshold = params.get("confidence_threshold", 0.5)
 
-        # Build sub-strategies with tuned params for short timeframes
+        # Build sub-strategies — diverse by design (trend + momentum + volatility)
         self._strategies: list[BaseStrategy] = [
             SMACrossoverStrategy({
                 "fast_period": params.get("fast_period", 5),
@@ -96,88 +100,77 @@ class ConsensusStrategy(BaseStrategy):
                 metadata={},
             )
 
-        # Count votes
-        buy_votes: list[str] = []
-        sell_votes: list[str] = []
-        hold_votes: list[str] = []
-        all_reasons: list[str] = []
-        total_confidence = 0.0
+        # Collect votes — only count signals above the confidence threshold
+        strong_buys: list[tuple[str, float]] = []   # (strategy_name, confidence)
+        strong_sells: list[tuple[str, float]] = []
+        all_votes: list[str] = []
 
         strategy_details: dict[str, Any] = {}
 
-        for rec in results:
-            strategy_name = rec.metadata.get("strategy_name", rec.reason[:20])
-            # Try to identify which strategy produced this
-            for s in self._strategies:
-                if s.evaluate.__qualname__.split(".")[0] in type(s).__name__:
-                    strategy_name = s.name
-                    break
-
-            if rec.signal == Signal.BUY:
-                buy_votes.append(rec.reason)
-                total_confidence += rec.confidence
-            elif rec.signal == Signal.SELL:
-                sell_votes.append(rec.reason)
-                total_confidence += rec.confidence
-            else:
-                hold_votes.append(rec.reason)
-
-            all_reasons.append(f"{rec.signal.value}({rec.confidence:.0%})")
-
-        # Build detailed metadata for the dashboard
-        vote_summary = []
         for i, rec in enumerate(results):
             s_name = self._strategies[i].name if i < len(self._strategies) else f"strategy_{i}"
-            vote_summary.append(f"{s_name}={rec.signal.value}")
+            all_votes.append(f"{s_name}={rec.signal.value}")
+
             strategy_details[s_name] = {
                 "signal": rec.signal.value,
                 "confidence": rec.confidence,
                 "reason": rec.reason,
             }
 
+            # Only count strong signals (above confidence threshold)
+            if rec.signal == Signal.BUY and rec.confidence >= self.confidence_threshold:
+                strong_buys.append((s_name, rec.confidence))
+            elif rec.signal == Signal.SELL and rec.confidence >= self.confidence_threshold:
+                strong_sells.append((s_name, rec.confidence))
+
         metadata: dict[str, Any] = {
-            "buy_count": len(buy_votes),
-            "sell_count": len(sell_votes),
-            "hold_count": len(hold_votes),
+            "buy_count": len(strong_buys),
+            "sell_count": len(strong_sells),
+            "hold_count": len(results) - len(strong_buys) - len(strong_sells),
             "min_agree": self.min_agree,
-            "votes": ", ".join(vote_summary),
+            "confidence_threshold": self.confidence_threshold,
+            "votes": ", ".join(all_votes),
             "strategies": strategy_details,
             "price": float(candles["close"].iloc[-1]),
         }
 
-        # Decide: BUY if enough strategies agree
-        if len(buy_votes) >= self.min_agree:
-            avg_confidence = total_confidence / len(results)
-            agreement_bonus = len(buy_votes) / len(results)  # higher when more agree
-            final_confidence = min(0.95, avg_confidence * 0.5 + agreement_bonus * 0.5)
+        # BUY: enough strong buy signals
+        if len(strong_buys) >= self.min_agree:
+            # Equal-weight average of confident strategies (research-backed)
+            avg_confidence = sum(c for _, c in strong_buys) / len(strong_buys)
+            # Bonus for agreement: more strategies = stronger signal
+            agreement_ratio = len(strong_buys) / len(results)
+            final_confidence = min(0.95, avg_confidence * 0.7 + agreement_ratio * 0.3)
 
+            names = [n for n, _ in strong_buys]
             return TradeRecommendation(
                 pair=pair,
                 signal=Signal.BUY,
                 confidence=round(final_confidence, 2),
-                reason=f"CONSENSUS BUY: {len(buy_votes)}/{len(results)} agree [{', '.join(vote_summary)}]",
+                reason=f"BUY ({len(strong_buys)}/{len(results)} strong): {', '.join(names)} [{', '.join(all_votes)}]",
                 metadata=metadata,
             )
 
-        # SELL if enough strategies agree
-        if len(sell_votes) >= self.min_agree:
-            avg_confidence = total_confidence / len(results)
-            agreement_bonus = len(sell_votes) / len(results)
-            final_confidence = min(0.95, avg_confidence * 0.5 + agreement_bonus * 0.5)
+        # SELL: enough strong sell signals
+        if len(strong_sells) >= self.min_agree:
+            avg_confidence = sum(c for _, c in strong_sells) / len(strong_sells)
+            agreement_ratio = len(strong_sells) / len(results)
+            final_confidence = min(0.95, avg_confidence * 0.7 + agreement_ratio * 0.3)
 
+            names = [n for n, _ in strong_sells]
             return TradeRecommendation(
                 pair=pair,
                 signal=Signal.SELL,
                 confidence=round(final_confidence, 2),
-                reason=f"CONSENSUS SELL: {len(sell_votes)}/{len(results)} agree [{', '.join(vote_summary)}]",
+                reason=f"SELL ({len(strong_sells)}/{len(results)} strong): {', '.join(names)} [{', '.join(all_votes)}]",
                 metadata=metadata,
             )
 
-        # No consensus — hold
+        # No strong signals — hold
         return TradeRecommendation(
             pair=pair,
             signal=Signal.HOLD,
-            confidence=0.3,
-            reason=f"No consensus: {len(buy_votes)}B/{len(sell_votes)}S/{len(hold_votes)}H [{', '.join(vote_summary)}]",
+            confidence=0.2,
+            reason=f"No strong signals (threshold={self.confidence_threshold}): [{', '.join(all_votes)}]",
             metadata=metadata,
         )

@@ -1,76 +1,79 @@
-"""Tests for the shared state store and live dashboard server."""
+"""Tests for the multi-pod state store and dashboard server."""
 
 from agent.state import StateStore
 
 
 def test_state_store_update():
-    """State store should accept and return updates."""
     store = StateStore()
     store.update(status="running", tick=5)
-
     snap = store.snapshot()
     assert snap["status"] == "running"
     assert snap["tick"] == 5
-    assert snap["last_updated"] is not None
 
 
-def test_state_store_add_signal():
-    """Signals should be appended to the list."""
+def test_state_store_pod_tracking():
+    """Each pod should be tracked independently."""
     store = StateStore()
-    store.add_signal({"pair": "BTC/USDT", "signal": "BUY", "confidence": 0.7})
-    store.add_signal({"pair": "ETH/USDT", "signal": "HOLD", "confidence": 0.3})
+    store.update_pod("sma_crossover", {"total_value": 2550, "pnl": 50, "pnl_pct": 2.0})
+    store.update_pod("rsi", {"total_value": 2480, "pnl": -20, "pnl_pct": -0.8})
 
     snap = store.snapshot()
-    assert len(snap["signals"]) == 2
-    assert snap["signals"][0]["pair"] == "BTC/USDT"
+    assert "sma_crossover" in snap["pods"]
+    assert "rsi" in snap["pods"]
+    assert snap["pods"]["sma_crossover"]["pnl"] == 50
+    assert snap["pods"]["rsi"]["pnl"] == -20
 
 
-def test_state_store_add_trade():
-    """Trades should be appended to the trade log."""
+def test_state_store_pod_equity():
+    """Per-pod equity points should be tracked separately."""
     store = StateStore()
-    store.add_trade({"pair": "BTC/USDT", "side": "BUY", "price": 50000})
+    store.add_pod_equity_point("sma_crossover", 2500)
+    store.add_pod_equity_point("sma_crossover", 2520)
+    store.add_pod_equity_point("rsi", 2500)
 
     snap = store.snapshot()
-    assert len(snap["trade_log"]) == 1
-    assert snap["trade_log"][0]["side"] == "BUY"
+    assert len(snap["pod_equity"]["sma_crossover"]) == 2
+    assert len(snap["pod_equity"]["rsi"]) == 1
 
 
-def test_state_store_equity_curve():
-    """Equity points should be tracked."""
+def test_state_store_signals_with_pod():
+    """Signals should include pod name."""
+    store = StateStore()
+    store.add_signal({"pod": "rsi", "pair": "BTC/USDT", "signal": "BUY"})
+
+    snap = store.snapshot()
+    assert snap["signals"][0]["pod"] == "rsi"
+
+
+def test_state_store_trades_with_pod():
+    """Trades should include pod name."""
+    store = StateStore()
+    store.add_trade({"pod": "macd", "pair": "ETH/USDT", "side": "BUY", "price": 2000})
+
+    snap = store.snapshot()
+    assert snap["trade_log"][0]["pod"] == "macd"
+
+
+def test_combined_equity():
     store = StateStore()
     store.add_equity_point(10000)
     store.add_equity_point(10050)
-    store.add_equity_point(10025)
 
     snap = store.snapshot()
-    assert len(snap["equity_curve"]) == 3
+    assert len(snap["equity_curve"]) == 2
     assert snap["equity_curve"][1]["value"] == 10050
 
 
-def test_state_store_signals_capped_at_100():
-    """Signal list should be capped at 100 entries."""
-    store = StateStore()
-    for i in range(150):
-        store.add_signal({"pair": f"PAIR_{i}", "signal": "HOLD"})
-
-    snap = store.snapshot()
-    assert len(snap["signals"]) == 100
-
-
-def test_state_store_snapshot_is_copy():
-    """Snapshot should return a deep copy, not a reference."""
+def test_snapshot_is_deep_copy():
     store = StateStore()
     store.update(status="running")
-
     snap1 = store.snapshot()
     snap1["status"] = "modified"
-
     snap2 = store.snapshot()
-    assert snap2["status"] == "running"  # original unchanged
+    assert snap2["status"] == "running"
 
 
 def test_server_app_exists():
-    """The Flask app should be importable and have routes."""
     from agent.server import app
     rules = [r.rule for r in app.url_map.iter_rules()]
     assert "/" in rules

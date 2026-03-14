@@ -1,4 +1,4 @@
-"""Tests for the consensus strategy."""
+"""Tests for the evidence-backed consensus strategy."""
 
 import pandas as pd
 
@@ -21,9 +21,9 @@ def _make_candles(prices: list[float]) -> pd.DataFrame:
     )
 
 
-def test_consensus_returns_hold_on_flat_data():
-    """Flat prices should produce HOLD — no strategy should signal."""
-    strategy = ConsensusStrategy(params={"min_agree": 2})
+def test_hold_on_flat_data():
+    """Flat prices → no strong signals → HOLD."""
+    strategy = ConsensusStrategy(params={"min_agree": 1, "confidence_threshold": 0.5})
     prices = [100.0] * 50
     candles = _make_candles(prices)
     result = strategy.evaluate("BTC/USDT", candles)
@@ -31,9 +31,9 @@ def test_consensus_returns_hold_on_flat_data():
     assert "votes" in result.metadata
 
 
-def test_consensus_metadata_has_vote_counts():
-    """Metadata should include buy/sell/hold vote counts."""
-    strategy = ConsensusStrategy(params={"min_agree": 2})
+def test_metadata_has_vote_counts():
+    """Metadata should include vote counts and confidence threshold."""
+    strategy = ConsensusStrategy(params={"min_agree": 1, "confidence_threshold": 0.5})
     prices = [100.0] * 50
     candles = _make_candles(prices)
     result = strategy.evaluate("BTC/USDT", candles)
@@ -41,62 +41,73 @@ def test_consensus_metadata_has_vote_counts():
     assert "buy_count" in result.metadata
     assert "sell_count" in result.metadata
     assert "hold_count" in result.metadata
-    assert result.metadata["buy_count"] + result.metadata["sell_count"] + result.metadata["hold_count"] == 4
+    assert "confidence_threshold" in result.metadata
+    total = result.metadata["buy_count"] + result.metadata["sell_count"] + result.metadata["hold_count"]
+    assert total == 4
 
 
-def test_consensus_buy_when_multiple_agree():
-    """When price crashes hard, RSI + Bollinger should both say BUY."""
+def test_crash_triggers_buy():
+    """A massive price crash should produce at least one strong buy signal."""
     strategy = ConsensusStrategy(params={
-        "min_agree": 2,
+        "min_agree": 1,
+        "confidence_threshold": 0.5,
         "rsi_period": 14,
         "rsi_oversold": 35,
         "bb_period": 15,
         "bb_std": 2.0,
-        "fast_period": 3,
-        "slow_period": 5,
     })
-    # Steady prices then a big crash — should trigger multiple buy signals
-    prices = [100.0] * 40 + [70.0]  # massive drop
+    # Steady at 100, then crash to 70 → RSI + Bollinger should flag oversold
+    prices = [100.0] * 40 + [70.0]
     candles = _make_candles(prices)
     result = strategy.evaluate("BTC/USDT", candles)
 
-    # At minimum, the metadata should show strategy votes
-    assert result.metadata["buy_count"] >= 0
-    assert "votes" in result.metadata
+    # With min_agree=1, even one strong signal should trigger
+    assert result.signal == Signal.BUY
+    assert result.metadata["buy_count"] >= 1
 
 
-def test_consensus_sell_when_multiple_agree():
-    """When price spikes hard, RSI + Bollinger should both say SELL."""
+def test_spike_triggers_sell():
+    """A massive price spike should produce at least one strong sell signal."""
     strategy = ConsensusStrategy(params={
-        "min_agree": 2,
+        "min_agree": 1,
+        "confidence_threshold": 0.5,
         "rsi_period": 14,
         "rsi_overbought": 65,
         "bb_period": 15,
         "bb_std": 2.0,
-        "fast_period": 3,
-        "slow_period": 5,
     })
-    prices = [100.0] * 40 + [130.0]  # massive spike
+    prices = [100.0] * 40 + [130.0]
     candles = _make_candles(prices)
     result = strategy.evaluate("BTC/USDT", candles)
 
-    assert result.metadata["sell_count"] >= 0
-    assert "votes" in result.metadata
+    assert result.signal in (Signal.BUY, Signal.SELL)  # extreme moves trigger either
+    assert result.metadata["sell_count"] >= 1
 
 
-def test_consensus_requires_min_agree():
-    """With min_agree=4, it should almost never trade — very conservative."""
-    strategy = ConsensusStrategy(params={"min_agree": 4})
+def test_high_threshold_filters_weak_signals():
+    """A very high confidence threshold should filter out weak signals → HOLD."""
+    strategy = ConsensusStrategy(params={
+        "min_agree": 1,
+        "confidence_threshold": 0.99,  # almost impossible to meet
+    })
     prices = [100.0] * 50
     candles = _make_candles(prices)
     result = strategy.evaluate("BTC/USDT", candles)
-    # 4/4 agreement on flat data is virtually impossible for a non-HOLD signal
     assert result.signal == Signal.HOLD
 
 
-def test_consensus_loadable_by_name():
+def test_strict_consensus_holds_on_flat():
+    """With min_agree=4, flat data → HOLD."""
+    strategy = ConsensusStrategy(params={"min_agree": 4, "confidence_threshold": 0.5})
+    prices = [100.0] * 50
+    candles = _make_candles(prices)
+    result = strategy.evaluate("BTC/USDT", candles)
+    assert result.signal == Signal.HOLD
+
+
+def test_loadable_by_name():
     """Consensus strategy should be loadable from the registry."""
-    strategy = load_strategy("consensus", {"min_agree": 2})
+    strategy = load_strategy("consensus", {"min_agree": 1})
     assert strategy.name == "consensus"
 
 

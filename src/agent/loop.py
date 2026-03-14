@@ -1,25 +1,30 @@
 """
-Agent Loop — the main orchestrator.
+Multi-Pod Agent Loop — runs 4 independent strategies with equal capital.
 
-On each tick:
-  1. Fetch fresh candle data
-  2. Check stop-loss / take-profit on open positions
-  3. Run the strategy on each pair
-  4. Execute any BUY/SELL signals through the portfolio manager
-  5. Update shared state for the live dashboard
-  6. Log the portfolio summary
+Each "pod" is an independent strategy + executor + portfolio manager.
+All pods share the same market data feed but trade with their own capital.
+The dashboard shows combined and per-strategy performance.
+
+Architecture:
+  $10,000 total → $2,500 per pod
+  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+  │ SMA Crossover│ │     RSI      │ │    MACD      │ │  Bollinger   │
+  │   $2,500     │ │   $2,500     │ │   $2,500     │ │   $2,500     │
+  └──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘
 """
 
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any
 
 import structlog
 
 from agent.config import AgentConfig
 from agent.strategies.base import Signal, BaseStrategy
-from agent.strategies.loader import load_strategy
+from agent.strategies.loader import load_strategy, STRATEGY_REGISTRY
 from agent.state import store
 from market_data.feed import MarketDataFeed
 from execution.paper import PaperExecutor, OrderStatus
@@ -28,9 +33,18 @@ from portfolio.manager import PortfolioManager
 log = structlog.get_logger()
 
 
+@dataclass
+class Pod:
+    """An independent strategy pod with its own capital."""
+    name: str
+    strategy: BaseStrategy
+    executor: PaperExecutor
+    portfolio: PortfolioManager
+
+
 class AgentLoop:
     """
-    Wires all components together and runs the trading loop.
+    Multi-pod orchestrator — runs all strategies simultaneously.
 
     Parameters
     ----------
@@ -42,27 +56,53 @@ class AgentLoop:
         self.cfg = cfg
         self.tick_count: int = 0
 
-        # Build components
+        # Shared market data feed
         self.feed = MarketDataFeed(cfg.exchange, cfg.trading)
-        self.strategy: BaseStrategy = load_strategy(cfg.strategy.name, cfg.strategy.params)
-        self.executor = PaperExecutor(cfg.paper.starting_balance)
-        self.portfolio = PortfolioManager(cfg.risk, self.executor)
+
+        # Build one pod per strategy, each with equal capital
+        pod_strategies = list(STRATEGY_REGISTRY.keys())
+        # Remove "consensus" — we're running individual strategies as pods
+        pod_strategies = [s for s in pod_strategies if s != "consensus"]
+
+        num_pods = len(pod_strategies)
+        capital_per_pod = cfg.paper.starting_balance / num_pods
+
+        self.pods: list[Pod] = []
+        for strategy_name in pod_strategies:
+            strategy = load_strategy(strategy_name, cfg.strategy.params)
+            executor = PaperExecutor(capital_per_pod)
+            portfolio = PortfolioManager(cfg.risk, executor)
+            self.pods.append(Pod(
+                name=strategy_name,
+                strategy=strategy,
+                executor=executor,
+                portfolio=portfolio,
+            ))
+
+        self.total_starting_balance = cfg.paper.starting_balance
 
         # Initialize shared state
         store.update(
             status="initializing",
             mode=cfg.mode,
             exchange=cfg.exchange.name,
-            strategy=cfg.strategy.name,
+            strategy="multi_pod",
             timeframe=cfg.trading.default_timeframe,
             pairs=cfg.trading.pairs,
+        )
+
+        log.info(
+            "agent_loop.pods_created",
+            num_pods=num_pods,
+            capital_per_pod=round(capital_per_pod, 2),
+            strategies=[p.name for p in self.pods],
         )
 
     def start(self) -> None:
         """Connect to the exchange and begin the loop."""
         log.info(
             "agent_loop.starting",
-            strategy=self.strategy.name,
+            strategies=[p.name for p in self.pods],
             pairs=self.cfg.trading.pairs,
             interval_s=self.cfg.scheduler.strategy_interval_seconds,
             mode=self.cfg.mode,
@@ -83,11 +123,11 @@ class AgentLoop:
             self._print_final_summary()
 
     def _tick(self) -> None:
-        """Execute one cycle of the trading loop."""
+        """Execute one cycle across all pods."""
         self.tick_count += 1
         log.info("agent_loop.tick", tick=self.tick_count)
 
-        # Step 1: Fetch current prices
+        # Step 1: Fetch current prices (shared across all pods)
         current_prices = self.feed.get_all_prices()
         if not current_prices:
             log.warning("agent_loop.no_prices", msg="Could not fetch prices, skipping tick")
@@ -95,116 +135,194 @@ class AgentLoop:
 
         store.update(prices=current_prices, tick=self.tick_count)
 
-        # Step 2: Check stop-loss / take-profit
-        closed = self.portfolio.check_stop_loss_take_profit(current_prices)
+        # Step 2: Fetch candles once (shared across all pods)
+        max_history = max(p.strategy.required_history for p in self.pods) + 10
+        all_candles = self.feed.fetch_all_pairs(limit=max_history)
+
+        # Step 3: Run each pod independently
+        for pod in self.pods:
+            self._run_pod(pod, current_prices, all_candles)
+
+        # Step 4: Update combined portfolio state
+        self._update_combined_state(current_prices)
+
+    def _run_pod(
+        self,
+        pod: Pod,
+        current_prices: dict[str, float],
+        all_candles: dict[str, Any],
+    ) -> None:
+        """Run a single strategy pod for one tick."""
+
+        # Check stop-loss / take-profit
+        closed = pod.portfolio.check_stop_loss_take_profit(current_prices)
         if closed:
-            log.info("agent_loop.auto_closed", pairs=closed)
+            log.info("pod.auto_closed", pod=pod.name, pairs=closed)
             for pair in closed:
-                last_order = self.executor.order_history[-1] if self.executor.order_history else None
+                last_order = pod.executor.order_history[-1] if pod.executor.order_history else None
                 if last_order:
                     store.add_trade({
                         "time": datetime.now(timezone.utc).isoformat(),
+                        "pod": pod.name,
                         "pair": pair,
                         "side": "SELL",
                         "price": last_order.price,
                         "cost": round(last_order.cost, 2),
-                        "reason": last_order.reason,
+                        "reason": f"[{pod.name}] {last_order.reason}",
                         "status": "FILLED",
                     })
 
-        # Step 3: Fetch candles and run strategy
-        all_candles = self.feed.fetch_all_pairs(limit=self.strategy.required_history + 10)
-
+        # Run strategy on each pair
         for pair, candles in all_candles.items():
             if candles.empty:
                 continue
 
-            recommendation = self.strategy.evaluate(pair, candles)
+            rec = pod.strategy.evaluate(pair, candles)
 
             log.info(
-                "agent_loop.signal",
+                "pod.signal",
+                pod=pod.name,
                 pair=pair,
-                signal=recommendation.signal.value,
-                confidence=recommendation.confidence,
-                reason=recommendation.reason,
+                signal=rec.signal.value,
+                confidence=rec.confidence,
+                reason=rec.reason[:80],
             )
 
             store.add_signal({
                 "time": datetime.now(timezone.utc).isoformat(),
+                "pod": pod.name,
                 "pair": pair,
-                "signal": recommendation.signal.value,
-                "confidence": recommendation.confidence,
-                "reason": recommendation.reason,
-                "metadata": recommendation.metadata,
+                "signal": rec.signal.value,
+                "confidence": rec.confidence,
+                "reason": f"[{pod.name}] {rec.reason}",
             })
 
-            # Step 4: Execute signals
-            if recommendation.signal == Signal.BUY:
+            # Execute signals
+            if rec.signal == Signal.BUY and rec.confidence >= 0.5:
                 price = current_prices.get(pair, 0)
                 if price > 0:
-                    filled = self.portfolio.try_buy(
+                    filled = pod.portfolio.try_buy(
                         pair=pair, price=price,
                         current_prices=current_prices,
-                        reason=recommendation.reason,
+                        reason=f"[{pod.name}] {rec.reason}",
                     )
                     if filled:
-                        last_order = self.executor.order_history[-1]
+                        last_order = pod.executor.order_history[-1]
                         store.add_trade({
                             "time": datetime.now(timezone.utc).isoformat(),
-                            "pair": pair, "side": "BUY",
+                            "pod": pod.name,
+                            "pair": pair,
+                            "side": "BUY",
                             "price": price,
                             "quantity": round(last_order.quantity, 8),
                             "cost": round(last_order.cost, 2),
-                            "reason": recommendation.reason,
+                            "reason": f"[{pod.name}] {rec.reason}",
                             "status": "FILLED",
                         })
 
-            elif recommendation.signal == Signal.SELL:
+            elif rec.signal == Signal.SELL and rec.confidence >= 0.5:
                 price = current_prices.get(pair, 0)
                 if price > 0:
-                    filled = self.portfolio.try_sell(
+                    filled = pod.portfolio.try_sell(
                         pair=pair, price=price,
-                        reason=recommendation.reason,
+                        reason=f"[{pod.name}] {rec.reason}",
                     )
                     if filled:
-                        last_order = self.executor.order_history[-1]
+                        last_order = pod.executor.order_history[-1]
                         store.add_trade({
                             "time": datetime.now(timezone.utc).isoformat(),
-                            "pair": pair, "side": "SELL",
+                            "pod": pod.name,
+                            "pair": pair,
+                            "side": "SELL",
                             "price": price,
                             "quantity": round(last_order.quantity, 8),
                             "cost": round(last_order.cost, 2),
-                            "reason": recommendation.reason,
+                            "reason": f"[{pod.name}] {rec.reason}",
                             "status": "FILLED",
                         })
 
-        # Step 5: Update shared state
-        summary = self.executor.summary(current_prices)
-        store.update(portfolio=summary)
-        store.add_equity_point(summary["total_value"])
+        # Update pod-specific state
+        pod_summary = pod.executor.summary(current_prices)
+        pod_value = pod.executor.total_value(current_prices)
+
+        store.update_pod(pod.name, {
+            "strategy": pod.name,
+            "cash": round(pod.executor.cash, 2),
+            "total_value": round(pod_value, 2),
+            "starting_balance": round(pod.executor.starting_balance, 2),
+            "pnl": round(pod_value - pod.executor.starting_balance, 2),
+            "pnl_pct": round(((pod_value - pod.executor.starting_balance) / pod.executor.starting_balance) * 100, 2),
+            "total_trades": len(pod.executor.order_history),
+            "open_positions": len(pod.executor.positions),
+            "positions": pod_summary.get("positions", {}),
+        })
+
+        store.add_pod_equity_point(pod.name, pod_value)
+
+    def _update_combined_state(self, current_prices: dict[str, float]) -> None:
+        """Aggregate all pod values into the combined portfolio view."""
+        total_value = sum(p.executor.total_value(current_prices) for p in self.pods)
+        total_cash = sum(p.executor.cash for p in self.pods)
+        total_positions = sum(len(p.executor.positions) for p in self.pods)
+        total_trades = sum(len(p.executor.order_history) for p in self.pods)
+        total_pnl = total_value - self.total_starting_balance
+        total_pnl_pct = (total_pnl / self.total_starting_balance) * 100
+
+        # Merge all positions
+        all_positions = {}
+        for pod in self.pods:
+            for pair, pos_data in pod.executor.summary(current_prices).get("positions", {}).items():
+                key = f"{pair} ({pod.name})"
+                all_positions[key] = pos_data
+
+        combined = {
+            "cash": round(total_cash, 2),
+            "total_value": round(total_value, 2),
+            "total_pnl": round(total_pnl, 2),
+            "total_pnl_pct": round(total_pnl_pct, 2),
+            "open_positions": total_positions,
+            "total_trades": total_trades,
+            "positions": all_positions,
+        }
+
+        store.update(portfolio=combined)
+        store.add_equity_point(total_value)
 
         log.info(
             "agent_loop.portfolio",
-            cash=summary["cash"],
-            total_value=summary["total_value"],
-            pnl=summary["total_pnl"],
-            pnl_pct=summary["total_pnl_pct"],
-            open_positions=summary["open_positions"],
-            total_trades=summary["total_trades"],
+            total_value=combined["total_value"],
+            pnl=combined["total_pnl"],
+            pnl_pct=combined["total_pnl_pct"],
+            positions=combined["open_positions"],
+            trades=combined["total_trades"],
+            pod_values={p.name: round(p.executor.total_value(current_prices), 2) for p in self.pods},
         )
 
     def _print_final_summary(self) -> None:
         """Print a final report when the agent shuts down."""
         current_prices = self.feed.get_all_prices()
-        summary = self.executor.summary(current_prices)
 
-        log.info("=" * 60)
-        log.info("agent_loop.final_report")
-        log.info(f"  Total ticks:      {self.tick_count}")
-        log.info(f"  Total trades:     {summary['total_trades']}")
-        log.info(f"  Starting balance: ${self.executor.starting_balance:,.2f}")
-        log.info(f"  Final value:      ${summary['total_value']:,.2f}")
-        log.info(f"  P&L:              ${summary['total_pnl']:,.2f} ({summary['total_pnl_pct']:.2f}%)")
-        log.info(f"  Cash remaining:   ${summary['cash']:,.2f}")
-        log.info(f"  Open positions:   {summary['open_positions']}")
-        log.info("=" * 60)
+        print("\n" + "=" * 70)
+        print("  MULTI-POD FINAL REPORT")
+        print("=" * 70)
+        print(f"  Total ticks: {self.tick_count}")
+        print(f"  Starting balance: ${self.total_starting_balance:,.2f}")
+        print()
+
+        total_value = 0
+        for pod in self.pods:
+            value = pod.executor.total_value(current_prices)
+            pnl = value - pod.executor.starting_balance
+            pnl_pct = (pnl / pod.executor.starting_balance) * 100
+            trades = len(pod.executor.order_history)
+            total_value += value
+
+            emoji = "+" if pnl >= 0 else ""
+            print(f"  {pod.name:<20} ${value:>10,.2f}  ({emoji}{pnl_pct:.2f}%)  {trades} trades")
+
+        total_pnl = total_value - self.total_starting_balance
+        total_pnl_pct = (total_pnl / self.total_starting_balance) * 100
+        print("-" * 70)
+        emoji = "+" if total_pnl >= 0 else ""
+        print(f"  {'COMBINED':<20} ${total_value:>10,.2f}  ({emoji}{total_pnl_pct:.2f}%)")
+        print("=" * 70 + "\n")
