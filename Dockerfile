@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir \
 
 # Create necessary directories
 RUN mkdir -p logs data/historical data/cache
-
+ENV PYTHONPATH=/app/src
 # Expose dashboard port
 EXPOSE 5555
 
