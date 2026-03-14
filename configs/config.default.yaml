@@ -1,0 +1,51 @@
+# ============================================================
+# Crypto Trading Agent — Default Configuration
+# ============================================================
+# Copy this file to configs/config.local.yaml and edit with
+# your own values. Never commit config.local.yaml to git.
+# ============================================================
+
+mode: paper                     # "paper" or "live" — start with paper!
+
+# --- Exchange Settings ---
+exchange:
+  name: kraken                  # Any exchange supported by ccxt
+  sandbox: false                # Kraken has no sandbox; we only read public data
+  rate_limit_ms: 1200           # Minimum ms between API calls
+
+# --- Trading Pairs ---
+trading:
+  pairs:
+    - BTC/USDT
+    - ETH/USDT
+  base_currency: USDT
+  default_timeframe: 1h         # Candle interval: 1m, 5m, 15m, 1h, 4h, 1d
+
+# --- Strategy ---
+strategy:
+  name: sma_crossover           # Which strategy class to load
+  params:
+    fast_period: 10
+    slow_period: 30
+
+# --- Risk Management ---
+risk:
+  max_position_pct: 5.0         # Max % of portfolio in a single trade
+  max_open_positions: 3         # Max simultaneous open positions
+  stop_loss_pct: 3.0            # Auto stop-loss trigger (%)
+  take_profit_pct: 6.0          # Auto take-profit trigger (%)
+  max_daily_loss_pct: 10.0      # Kill switch: stop trading for the day
+
+# --- Paper Trading ---
+paper:
+  starting_balance: 10000.0     # Simulated starting capital in base_currency
+
+# --- Logging ---
+logging:
+  level: INFO                   # DEBUG, INFO, WARNING, ERROR
+  format: console               # "console" (pretty) or "json" (structured)
+  log_file: logs/agent.log
+
+# --- Scheduling ---
+scheduler:
+  strategy_interval_seconds: 60 # How often to re-evaluate the strategy

@@ -1,0 +1,73 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crypto-trading-agent"
+version = "0.1.0"
+description = "Automated cryptocurrency trading agent with paper and live trading support"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+
+dependencies = [
+    # --- Exchange & Market Data ---
+    "ccxt>=4.0",                  # Unified API for 100+ crypto exchanges
+    "websockets>=12.0",           # Real-time price feeds
+
+    # --- Data & Analysis ---
+    "pandas>=2.1",                # Tabular data manipulation
+    "numpy>=1.26",                # Numerical computing
+    "ta>=0.11",                   # Technical analysis indicators (RSI, MACD, etc.)
+
+    # --- Configuration & Environment ---
+    "pydantic>=2.5",              # Config validation & typed settings
+    "pydantic-settings>=2.1",     # .env / environment variable loading
+    "pyyaml>=6.0",                # YAML config file parsing
+    "python-dotenv>=1.0",         # .env file support
+
+    # --- Logging & Monitoring ---
+    "structlog>=24.0",            # Structured, JSON-friendly logging
+    "rich>=13.0",                 # Pretty terminal output & tables
+
+    # --- Web Dashboard ---
+    "flask>=3.0",                 # Lightweight web server for live dashboard
+
+    # --- Scheduling ---
+    "apscheduler>=3.10",          # Task scheduling for periodic strategy runs
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=4.1",
+    "ruff>=0.3",
+    "mypy>=1.8",
+    "pre-commit>=3.6",
+]
+backtest = [
+    "matplotlib>=3.8",
+    "plotly>=5.18",
+]
+
+[project.scripts]
+trading-agent = "agent.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
