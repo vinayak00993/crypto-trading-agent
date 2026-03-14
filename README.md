@@ -1,229 +1,186 @@
 # Crypto Trading Agent
 
-An automated cryptocurrency trading agent that evaluates markets, executes strategies, and manages a portfolio — starting safely with paper trading before ever touching real funds.
+An autonomous multi-strategy crypto trading agent with an ML meta-learner that gets smarter over time.
 
-> **⚠️ Disclaimer:** This is a personal learning and engineering project. Automated trading carries significant financial risk. Never trade with money you can't afford to lose. This software comes with no guarantees of profit. Consult a financial advisor before deploying real capital.
+## What This Is
 
----
+A paper trading system that runs 9 independent strategy "pods" across 3 cryptocurrencies (BTC, ETH, SOL), competing head-to-head. A 9th ML meta-learner pod observes all 8, learns which signal combinations actually predict profitable trades, and makes its own autonomous trades based on a gradient boosting model.
 
-## Architecture Overview
+**Live Dashboard:** https://crypto-trading-agent-production.up.railway.app
 
-The agent is built as a pipeline of independent, testable components. Each component has a single responsibility and communicates through well-defined interfaces.
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   Agent Scheduler                    │
-│          (ticks every N seconds via APScheduler)     │
-└──────┬──────────────┬──────────────┬────────────────┘
-       │              │              │
-       ▼              ▼              ▼
- ┌───────────┐  ┌───────────┐  ┌───────────────┐
- │  Market   │  │ Strategy  │  │   Portfolio    │
- │   Data    │  │  Engine   │  │   Manager      │
- │   Feed    │  │           │  │                │
- └─────┬─────┘  └─────┬─────┘  └──────┬────────┘
-       │              │               │
-       │         (evaluates)     (enforces risk
-       │              │          limits, tracks
-       ▼              ▼          positions)
-  ┌─────────┐   ┌──────────┐        │
-  │  ccxt   │   │ Indicators│       ▼
-  │ Exchange│   │ (ta lib)  │  ┌──────────┐
-  │   API   │   └──────────┘  │ Executor │
-  └─────────┘                 │ (paper / │
-                              │  live)   │
-                              └──────────┘
+$22,500 total paper money ($2,500 per pod)
+
+TECHNICAL STRATEGIES ($2,500 each)
+  SMA Crossover    - Trend following (fast/slow moving average cross)
+  RSI              - Momentum (buy oversold <35, sell overbought >65)
+  MACD             - Momentum (bullish/bearish crossovers)
+  Bollinger Bands  - Volatility (buy lower band break, sell upper)
+
+FUNDAMENTAL STRATEGIES ($2,500 each)
+  Fear & Greed     - Contrarian (buy extreme fear <20, sell extreme greed >75)
+  Network Activity - On-chain (BTC active addresses, tx count, hash rate)
+  Volume Momentum  - Volume spikes confirming price direction
+  DCA Baseline     - Dollar cost averaging benchmark (buy every N ticks)
+
+ML META-LEARNER ($2,500) - AUTONOMOUS
+  Gradient boosting model that learns from all 8 pods
+  - Observes every signal from every pod
+  - Evaluates signal accuracy after 20 ticks
+  - Trains ML model after 200+ samples
+  - Learns signal COMBINATIONS (not just individual accuracy)
+  - Incorporates external data (Fear and Greed, funding rates, BTC dominance)
+  - Retrains every 50 new samples
+  - Persistent memory - survives restarts (saved to data/ml_learner/)
 ```
 
-### Component Responsibilities
+## Trading Pairs
+- BTC/USDT (Bitcoin)
+- ETH/USDT (Ethereum)
+- SOL/USDT (Solana)
 
-| Component | Location | Purpose |
-|---|---|---|
-| **Config** | `src/agent/config.py` | Loads and validates all settings from YAML, env vars, and `.env` files using Pydantic. Single source of truth. |
-| **Market Data Feed** | `src/market_data/` | Connects to exchanges via `ccxt`, fetches OHLCV candles and order book data. Will support both REST polling and WebSocket streaming. |
-| **Strategy Engine** | `src/agent/strategies/` | Pluggable strategy system. Each strategy subclasses `BaseStrategy` and implements `evaluate()` → returns BUY / SELL / HOLD signals with confidence scores. |
-| **Indicators** | `src/agent/indicators/` | Technical analysis helpers (RSI, MACD, Bollinger Bands, etc.) wrapping the `ta` library for easy use inside strategies. |
-| **Portfolio Manager** | `src/portfolio/` | Tracks all open positions, calculates P&L, enforces risk limits (max position size, stop-loss, daily loss cap). |
-| **Executor** | `src/execution/` | Translates trade signals into actual orders. `PaperExecutor` simulates fills locally; `LiveExecutor` submits real orders via ccxt. |
-| **Scheduler** | Part of `main.py` | Uses APScheduler to call the strategy at a fixed interval, feeding it fresh candle data each tick. |
-| **Logging** | `structlog` | Every decision, trade, and error is logged with structured context for easy debugging and audit trails. |
-
----
+## External Data Feeds (all free, no API keys)
+- **Fear and Greed Index** - alternative.me API (market sentiment 0-100)
+- **Blockchain stats** - blockchain.com API (active addresses, tx count, hash rate)
+- **BTC dominance** - alternative.me API (altcoin rotation signal)
+- **Funding rates** - CoinGlass API (leveraged trader positioning)
 
 ## Project Structure
 
 ```
 crypto-trading-agent/
-├── configs/
-│   └── config.default.yaml     # Default settings (committed)
-│   └── config.local.yaml       # Your overrides (git-ignored)
-├── data/
-│   ├── historical/             # Downloaded candle data for backtesting
-│   └── cache/                  # Temporary data cache
-├── logs/                       # Agent log files
-├── src/
-│   ├── agent/
-│   │   ├── __init__.py
-│   │   ├── config.py           # Pydantic config system
-│   │   ├── main.py             # Entry point & component wiring
-│   │   ├── strategies/
-│   │   │   ├── __init__.py
-│   │   │   └── base.py         # BaseStrategy ABC & Signal types
-│   │   └── indicators/
-│   │       └── __init__.py
-│   ├── market_data/
-│   │   └── __init__.py
-│   ├── execution/
-│   │   └── __init__.py
-│   ├── portfolio/
-│   │   └── __init__.py
-│   └── utils/
-│       └── __init__.py
-├── tests/
-│   ├── __init__.py
-│   └── test_config.py          # Config loading smoke tests
-├── .env.example                # Template for API keys
-├── .gitignore
-├── pyproject.toml              # Dependencies & project metadata
-└── README.md                   # ← You are here
+  src/
+    agent/
+      config.py              - Pydantic config, layered YAML+env
+      main.py                - Entry point (python -m agent.main)
+      live.py                - Agent + dashboard (python -m agent.live)
+      loop.py                - Main trading loop, 9 pods, ML signal feeding
+      state.py               - Thread-safe StateStore singleton
+      server.py              - Flask web server + dashboard HTML
+      backtest.py            - Backtesting engine
+      run_backtest.py        - CLI: python -m agent.run_backtest
+      monthly_backtest.py    - Downloads 5m candles, monthly comparison
+      dashboard.py           - Static backtest dashboard generator
+      strategies/
+        base.py              - BaseStrategy ABC, Signal enum, TradeRecommendation
+        sma_crossover.py     - Simple Moving Average crossover
+        rsi.py               - Relative Strength Index
+        macd.py              - Moving Average Convergence Divergence
+        bollinger_bands.py   - Bollinger Bands volatility
+        consensus.py         - Meta-strategy (not used in multi-pod mode)
+        fear_greed.py        - Fear and Greed contrarian
+        network_activity.py  - BTC on-chain metrics
+        volume_momentum.py   - Volume spike confirmation
+        dca_baseline.py      - Dollar cost averaging benchmark
+        ml_meta_learner.py   - ML v2: persistent, gradient boosting, external data
+        loader.py            - STRATEGY_REGISTRY + group labels
+    market_data/feed.py      - ccxt MarketDataFeed (Kraken)
+    execution/paper.py       - PaperExecutor, Order, Position
+    portfolio/manager.py     - PortfolioManager, risk controls
+    utils/
+  tests/                     - Unit tests
+  configs/config.default.yaml - All configuration
+  data/
+    ml_learner/              - Persistent ML state (gitignored)
+      training_samples.json  - All training data
+      pod_stats.json         - Pod accuracy scores
+      model_meta.json        - Model metadata
+  Dockerfile                 - Cloud deployment (Railway)
+  pyproject.toml             - Dependencies (incl. scikit-learn)
 ```
 
----
+## Configuration (configs/config.default.yaml)
 
-## Quick Start
+Key settings:
+- Exchange: Kraken (Binance geo-blocked for user)
+- Pairs: BTC/USDT, ETH/USDT, SOL/USDT
+- Timeframe: 5-minute candles
+- Tick interval: 30 seconds
+- Starting balance: $22,500 ($2,500 x 9 pods)
+- Risk: 40% max position per pod, 2% stop loss, 3% take profit
 
-```bash
-# 1. Clone and enter the project
+## ML Meta-Learner Details
+
+### Learning Phases
+1. LEARNING (0-200 samples): Observes pods, uses weighted voting fallback
+2. WARMING (200-500 samples): ML model active but conservative
+3. AUTONOMOUS (500+ samples): Full ML model, confident trading
+
+### Features the ML Model Sees
+- 8 pod signals (BUY=1, HOLD=0, SELL=-1)
+- 8 pod confidence scores
+- 8 pod rolling accuracy scores
+- Fear and Greed Index (normalized)
+- BTC funding rate
+- BTC dominance (normalized)
+- BTC 24h price change
+- Recent price momentum
+
+### Persistent Memory
+All learning data saves to data/ml_learner/ every 25 ticks.
+On Railway, this is mounted to a persistent volume at /app/data.
+Agent restarts load all previous knowledge instantly.
+
+## Commands
+
+### Run locally (Cursor terminal)
+```
 cd crypto-trading-agent
-
-# 2. Create a virtual environment
-python3.11 -m venv .venv
-source .venv/bin/activate
-
-# 3. Install in editable mode with dev dependencies
-pip install -e ".[dev]"
-
-# 4. Copy and configure your settings
-cp .env.example .env
-cp configs/config.default.yaml configs/config.local.yaml
-# Edit .env with your exchange API keys
-# Edit config.local.yaml with your preferences
-
-# 5. Run the tests
-pytest
-
-# 6. Start the agent (paper mode by default)
-trading-agent
-```
-
----
-
-## Configuration
-
-Settings are layered in this priority order (highest wins):
-
-1. `configs/config.default.yaml` — safe defaults shipped with the project
-2. `configs/config.local.yaml` — your personal overrides (git-ignored)
-3. Environment variables — prefixed `AGENT_` (e.g., `AGENT_MODE=live`)
-4. `.env` file — loaded automatically via python-dotenv
-
-All config values are validated at startup by Pydantic. If something is wrong, the agent will fail fast with a clear error message rather than silently misbehaving.
-
----
-
-## Available Strategies
-
-| Strategy | Config Name | Description |
-|---|---|---|
-| **SMA Crossover** | `sma_crossover` | Buys when fast SMA crosses above slow SMA. Classic trend-following. |
-| **RSI** | `rsi` | Buys when RSI < 30 (oversold), sells when RSI > 70 (overbought). Mean-reversion. |
-| **MACD** | `macd` | Buys on MACD/signal bullish crossover, sells on bearish crossover. Momentum. |
-| **Bollinger Bands** | `bollinger_bands` | Buys when price breaks below lower band, sells above upper band. Volatility-based. |
-
-To switch strategies, edit `configs/config.default.yaml` and change `strategy.name`.
-
----
-
-## Backtesting
-
-Run any strategy against historical data to see how it would have performed:
-
-```bash
-# Backtest default strategy (SMA Crossover) on BTC/USDT
-python -m agent.run_backtest
-
-# Backtest RSI strategy with 60 days of data
-python -m agent.run_backtest --strategy rsi --days 60
-
-# Compare ALL strategies side-by-side and save results
-python -m agent.run_backtest --compare --save-json
-
-# Open the visual dashboard in your browser
-python -m agent.dashboard
-```
-
-The dashboard shows equity curves, trade history, win rates, Sharpe ratios, and more.
-
----
-
-## Live Dashboard
-
-Run the agent with a real-time web dashboard that updates every 5 seconds:
-
-```bash
-# Start agent + live dashboard
+.venv\Scripts\Activate.ps1
 python -m agent.live
+```
+Dashboard at http://localhost:5555
 
-# Then open in your browser:
-# http://localhost:5555
+### Run backtests
+```
+python -m agent.run_backtest --compare --save-json --days 30
+python -m agent.monthly_backtest --pair BTC/USDT --months 6 --save
 ```
 
-The dashboard has two modes:
-- **Simple** — portfolio value, P&L, prices, and trade history (clean and focused)
-- **Advanced** — adds equity curve, strategy signals, confidence scores, and detailed metrics
+### Push to cloud (PowerShell)
+```
+cd "$HOME\OneDrive\Desktop\trading agent files\crypto-trading-agent"
+git add .
+git commit -m "description"
+git push
+```
+Railway auto-deploys from GitHub.
 
-Toggle between them with the button in the top-right corner.
+## Cloud Deployment (Railway)
+- URL: https://crypto-trading-agent-production.up.railway.app
+- Plan: Hobby ($5/month)
+- Persistent volume: /app/data for ML learner state
+- Auto-deploy: Pushes to main branch trigger redeploy
 
----
+## What is Left to Build
 
-## Roadmap
+### Phase 5: Live Trading
+- Connect funded Kraken API key
+- Swap PaperExecutor for real executor
+- Add trading fees (0.26% per trade)
+- Add slippage protection
+- Start with $50-100 per pod
+- Add kill switch (max loss threshold)
+- Add Telegram/Discord alerts
 
-### Phase 1 — Foundation ✅ (complete)
-- [x] Project scaffolding & folder structure
-- [x] Config system with validation
-- [x] Base strategy interface
-- [x] Market data feed (ccxt REST polling)
-- [x] Paper trading executor
-- [x] Portfolio manager with risk controls (stop-loss, take-profit, position limits)
-- [x] First strategy: SMA Crossover
-- [x] Agent loop with scheduler
+### Phase 6: Advanced
+- Additional data feeds (Google Trends, S&P 500 correlation, liquidation data)
+- More sophisticated ML (LSTM, transformer models)
+- Prediction market agent (separate project)
+- Scale to 10-15 autonomous agents
 
-### Phase 2 — Backtesting & Multi-Strategy ✅ (complete)
-- [x] Backtesting engine (run strategies on historical data)
-- [x] Performance metrics (Sharpe ratio, max drawdown, win rate, profit factor)
-- [x] Multiple strategies: RSI, MACD, Bollinger Bands
-- [x] Strategy comparison tool (--compare flag)
-- [x] HTML dashboard with equity curves, trade history, metrics
+## Research Notes
+- MACD outperformed other strategies on BTC backtests (+1.28% over 30 days)
+- RSI won live with +0.24% on Railways 4-pod run
+- Fear and Greed at extreme fear (<20) is historically one of the most reliable buy signals
+- Equal pod weighting is evidence-backed (Bates and Granger 1969, forecast combination puzzle)
+- Crypto markets are less efficient than stocks, making technical analysis more effective
+- Academic research supports combining strategies over individual ones
 
-### Phase 3 — Live Dashboard & Monitoring ✅ (complete)
-- [x] Live web dashboard with real-time updates (Flask + polling)
-- [x] Simple / Advanced mode toggle
-- [x] Live price ticker, equity curve, signal log, trade history
-- [x] Thread-safe state store bridging agent and dashboard
-
-### Phase 4 — Live Trading (only after extensive paper testing)
-- [ ] Live executor with exchange order submission
-- [ ] Dry-run mode (submit & cancel immediately to verify flow)
-- [ ] Position reconciliation with exchange
-- [ ] Emergency stop button
-- [ ] Cloud deployment for 24/7 operation
-- [ ] Alerting (Telegram, Discord, email notifications)
-
----
-
-## Safety Philosophy
-
-1. **Paper first, always.** The default mode is `paper`. You have to explicitly change it to go live.
-2. **Risk limits are mandatory.** Stop-losses, position caps, and daily loss limits are baked into the config and enforced by the portfolio manager.
-3. **Every decision is logged.** Full audit trail of every signal, trade, and state change.
-4. **Fail fast.** Invalid config, unreachable exchange, or unexpected data → the agent stops rather than guessing.
+## Known Issues
+- Local Windows: Unicode arrow character in ML log messages causes encoding error (cosmetic only, does not affect Railway)
+- Local Windows: numpy bool JSON serialization error on save_state (fix: cast to Python bool)
+- Kraken does not have APT/USDT - removed from config
+- Kraken API limits 5m candle history to ~720 candles (~2.5 days) - use 1h for longer backtests
