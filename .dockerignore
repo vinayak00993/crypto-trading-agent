@@ -8,3 +8,4 @@ logs/
 tests/
 Crypto-AI-Agend/
 *.zip
+CHAT_HISTORY.txt
