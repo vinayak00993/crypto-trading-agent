@@ -303,8 +303,15 @@ class SignalModel:
             from sklearn.ensemble import GradientBoostingClassifier
             from sklearn.model_selection import cross_val_score
 
-            X = np.array([s["features"] for s in samples])
-            y = np.array([s["target"] for s in samples])
+            # Filter out samples with mismatched feature lengths
+            expected_len = len(samples[-1]["features"])
+            clean = [s for s in samples if len(s.get("features", [])) == expected_len]
+            if len(clean) < 200:
+                log.info("ml.insufficient_clean_samples", total=len(samples), clean=len(clean))
+                return False
+
+            X = np.array([s["features"] for s in clean])
+            y = np.array([s["target"] for s in clean])
 
             # Check we have both classes
             if len(set(y)) < 2:
