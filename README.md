@@ -21,7 +21,7 @@ TECHNICAL STRATEGIES ($2,500 each)
 
 FUNDAMENTAL STRATEGIES ($2,500 each)
   Fear & Greed     - Contrarian (buy extreme fear <20, sell extreme greed >75)
-  Network Activity - On-chain (BTC active addresses, tx count, hash rate)
+  Network Activity - On-chain (BTC active addresses, tx count, compute power)
   Volume Momentum  - Volume spikes confirming price direction
   DCA Baseline     - Dollar cost averaging benchmark (buy every N ticks)
 
@@ -43,7 +43,7 @@ ML META-LEARNER ($2,500) - AUTONOMOUS
 
 ## External Data Feeds (all free, no API keys)
 - **Fear and Greed Index** - alternative.me API (market sentiment 0-100)
-- **Blockchain stats** - blockchain.com API (active addresses, tx count, hash rate)
+- **Blockchain stats** - blockchain.com API (active addresses, tx count, compute power)
 - **BTC dominance** - alternative.me API (altcoin rotation signal)
 - **Funding rates** - CoinGlass API (leveraged trader positioning)
 

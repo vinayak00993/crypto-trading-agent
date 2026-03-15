@@ -4,7 +4,7 @@ Network Activity Strategy
 Monitors Bitcoin on-chain metrics via free blockchain.com API:
   - Active addresses (unique senders + receivers)
   - Transaction count
-  - Hash rate
+  - Compute power
 
 When network activity surges above its moving average, it signals
 growing adoption/demand → BUY. When it drops, demand is fading → SELL.
@@ -70,8 +70,8 @@ class NetworkActivityStrategy(BaseStrategy):
                     metrics["tx_count_avg"] = sum(values) / len(values)
                     metrics["tx_count_ratio"] = values[-1] / (sum(values) / len(values))
 
-            # Hash rate (last 30 days)
-            url = "https://api.blockchain.info/charts/hash-rate?timespan=30days&format=json"
+            # Compute power (last 30 days)
+            url = "https://api.blockchain.info/charts/difficulty?timespan=30days&format=json"
             req = urllib.request.Request(url, headers={"User-Agent": "CryptoBot/1.0"})
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode())
@@ -88,7 +88,7 @@ class NetworkActivityStrategy(BaseStrategy):
                 "network_activity.fetched",
                 addr_ratio=round(metrics.get("active_addresses_ratio", 0), 3),
                 tx_ratio=round(metrics.get("tx_count_ratio", 0), 3),
-                hash_ratio=round(metrics.get("compute_power_ratio", 0), 3),
+                compute_ratio=round(metrics.get("compute_power_ratio", 0), 3),
             )
             return metrics
 
@@ -126,15 +126,15 @@ class NetworkActivityStrategy(BaseStrategy):
             score -= 1
             signals.append(f"Transactions dropping ({tx_ratio:.2f}x avg)")
 
-        hash_ratio = metrics.get("compute_power_ratio", 1.0)
-        if hash_ratio >= self.surge_threshold:
+        compute_ratio = metrics.get("compute_power_ratio", 1.0)
+        if compute_ratio >= self.surge_threshold:
             score += 1
-            signals.append(f"Hash rate surging ({hash_ratio:.2f}x avg)")
-        elif hash_ratio <= self.drop_threshold:
+            signals.append(f"Compute power surging ({compute_ratio:.2f}x avg)")
+        elif compute_ratio <= self.drop_threshold:
             score -= 1
-            signals.append(f"Hash rate dropping ({hash_ratio:.2f}x avg)")
+            signals.append(f"Compute power dropping ({compute_ratio:.2f}x avg)")
 
-        reason_str = "; ".join(signals) if signals else f"Network stable (addr:{addr_ratio:.2f}x, tx:{tx_ratio:.2f}x, hp:{hash_ratio:.2f}x)"
+        reason_str = "; ".join(signals) if signals else f"Network stable (addr:{addr_ratio:.2f}x, tx:{tx_ratio:.2f}x, hp:{compute_ratio:.2f}x)"
 
         if score >= 2:
             return TradeRecommendation(
