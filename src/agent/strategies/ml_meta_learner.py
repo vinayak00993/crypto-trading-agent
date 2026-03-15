@@ -140,16 +140,20 @@ class PersistentMemory:
         # Keep last 5000 samples
         samples = samples[-5000:]
         with open(path, "w") as f:
-            json.dump(samples, f)
+        json.dump(samples, f, default=lambda o: bool(o) if isinstance(o, (bool,)) else float(o) if hasattr(o, 'item') else str(o))
         log.debug("ml.memory_saved", samples=len(samples), path=str(path))
 
     def load_training_data(self) -> list[dict]:
         path = self.data_dir / "training_samples.json"
         if path.exists():
-            with open(path) as f:
-                samples = json.load(f)
-            log.info("ml.memory_loaded", samples=len(samples))
-            return samples
+            try:
+                with open(path) as f:
+                    samples = json.load(f)
+                log.info("ml.memory_loaded", samples=len(samples))
+                return samples
+            except (json.JSONDecodeError, ValueError):
+                log.warning("ml.corrupt_data_reset")
+                return []
         return []
 
     def save_pod_stats(self, stats: dict) -> None:
