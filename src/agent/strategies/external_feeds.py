@@ -142,6 +142,34 @@ class ExternalData:
             pass
         return {"sp500_daily_change": 0.0}
 
+    # --- Google Trends for crypto keywords (trendspyg) ---
+    def get_google_trends(self) -> dict:
+        now = time.time()
+        key = "google_trends"
+        if key in self._cache and (now - self._cache_times.get(key, 0)) < 3600:
+            return self._cache[key]
+
+        try:
+            from trendspyg import TrendsClient
+            client = TrendsClient()
+            data = client.interest_over_time(keywords=["bitcoin", "crypto crash", "buy crypto"], timeframe="now 7-d")
+            if data is not None and not data.empty:
+                latest = data.iloc[-1]
+                result = {
+                    "trends_bitcoin": int(latest.get("bitcoin", 50)),
+                    "trends_crash": int(latest.get("crypto crash", 0)),
+                    "trends_buy": int(latest.get("buy crypto", 0)),
+                }
+                self._cache[key] = result
+                self._cache_times[key] = now
+                log.info("external.google_trends_fetched", **result)
+                return result
+        except Exception as e:
+            log.debug("external.google_trends_failed", error=str(e))
+
+        cached = self._cache.get(key, {"trends_bitcoin": 50, "trends_crash": 0, "trends_buy": 0})
+        return cached
+
     def get_all(self) -> dict:
         features = {}
         features.update(self.get_fear_greed())
@@ -152,5 +180,5 @@ class ExternalData:
         features.update(self.get_btc_dominance())
         features.update(self.get_global_market())
         features.update(self.get_sp500())
+        features.update(self.get_google_trends())
         return features
-        

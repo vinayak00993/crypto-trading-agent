@@ -28,6 +28,7 @@ dependencies = [
 
     # --- Logging & Monitoring ---
     "structlog>=24.0",            # Structured, JSON-friendly logging
+    "trendspyg",                  # Google Trends data
     "rich>=13.0",                 # Pretty terminal output & tables
 
     # --- Web Dashboard ---

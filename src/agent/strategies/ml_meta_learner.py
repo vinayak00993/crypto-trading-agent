@@ -304,6 +304,12 @@ class SignalModel:
         names.append("market_cap_change_norm")
         features.append(external.get("sp500_daily_change", 0) / 3.0)
         names.append("sp500_change_norm")
+        features.append(external.get("trends_bitcoin", 50) / 100.0)
+        names.append("trends_bitcoin_norm")
+        features.append(external.get("trends_crash", 0) / 100.0)
+        names.append("trends_crash_norm")
+        features.append(external.get("trends_buy", 0) / 100.0)
+        names.append("trends_buy_norm")
         features.append(price_momentum / 5.0)
         names.append("price_momentum_norm")
 
