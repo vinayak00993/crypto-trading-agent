@@ -140,7 +140,7 @@ class PersistentMemory:
         # Keep last 5000 samples
         samples = samples[-5000:]
         with open(path, "w") as f:
-        json.dump(samples, f, default=lambda o: bool(o) if isinstance(o, (bool,)) else float(o) if hasattr(o, 'item') else str(o))
+        json.dump(samples, f, default=str)
         log.debug("ml.memory_saved", samples=len(samples), path=str(path))
 
     def load_training_data(self) -> list[dict]:
