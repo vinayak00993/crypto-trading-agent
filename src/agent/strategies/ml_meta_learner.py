@@ -139,9 +139,9 @@ class PersistentMemory:
         path = self.data_dir / "training_samples.json"
         # Keep last 5000 samples
         samples = samples[-5000:]
-        with open(path, "w") as f:
-        json.dump(samples, f, default=str)
-        log.debug("ml.memory_saved", samples=len(samples), path=str(path))
+        142         with open(path, "w") as f:
+143                 json.dump(samples, f, default=str)
+144                 log.debug("ml.memory_saved", samples=len(samples), path=str(path))
 
     def load_training_data(self) -> list[dict]:
         path = self.data_dir / "training_samples.json"
