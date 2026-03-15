@@ -130,6 +130,10 @@ class ExternalData:
         return features
 
 
+# Override ExternalData with expanded v3 (Binance, CoinGecko, S&P 500, etc.)
+from agent.strategies.external_feeds import ExternalData
+
+
 # ---------------------------------------------------------------------------
 # Persistent storage (v2.1 — atomic writes with backup recovery)
 # ---------------------------------------------------------------------------
@@ -288,6 +292,18 @@ class SignalModel:
         names.append("btc_dominance_norm")
         features.append(external.get("btc_24h_change", 0.0) / 10.0)
         names.append("btc_24h_change_norm")
+        features.append(external.get("btc_open_interest", 0) / 100000.0)
+        names.append("btc_open_interest_norm")
+        features.append(external.get("long_short_ratio", 1.0))
+        names.append("long_short_ratio")
+        features.append(external.get("long_account_pct", 0.5))
+        names.append("long_account_pct")
+        features.append(external.get("taker_buy_sell_ratio", 1.0))
+        names.append("taker_buy_sell_ratio")
+        features.append(external.get("market_cap_change_24h", 0) / 5.0)
+        names.append("market_cap_change_norm")
+        features.append(external.get("sp500_daily_change", 0) / 3.0)
+        names.append("sp500_change_norm")
         features.append(price_momentum / 5.0)
         names.append("price_momentum_norm")
 
