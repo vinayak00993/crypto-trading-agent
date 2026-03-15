@@ -77,9 +77,9 @@ class NetworkActivityStrategy(BaseStrategy):
                 data = json.loads(resp.read().decode())
                 values = [p["y"] for p in data.get("values", [])]
                 if values:
-                    metrics["hash_rate_current"] = values[-1]
-                    metrics["hash_rate_avg"] = sum(values) / len(values)
-                    metrics["hash_rate_ratio"] = values[-1] / (sum(values) / len(values))
+                    metrics["compute_power_current"] = values[-1]
+                    metrics["compute_power_avg"] = sum(values) / len(values)
+                    metrics["compute_power_ratio"] = values[-1] / (sum(values) / len(values))
 
             self._cached_data = metrics
             self._cached_at = now
@@ -88,7 +88,7 @@ class NetworkActivityStrategy(BaseStrategy):
                 "network_activity.fetched",
                 addr_ratio=round(metrics.get("active_addresses_ratio", 0), 3),
                 tx_ratio=round(metrics.get("tx_count_ratio", 0), 3),
-                hash_ratio=round(metrics.get("hash_rate_ratio", 0), 3),
+                hash_ratio=round(metrics.get("compute_power_ratio", 0), 3),
             )
             return metrics
 
@@ -126,7 +126,7 @@ class NetworkActivityStrategy(BaseStrategy):
             score -= 1
             signals.append(f"Transactions dropping ({tx_ratio:.2f}x avg)")
 
-        hash_ratio = metrics.get("hash_rate_ratio", 1.0)
+        hash_ratio = metrics.get("compute_power_ratio", 1.0)
         if hash_ratio >= self.surge_threshold:
             score += 1
             signals.append(f"Hash rate surging ({hash_ratio:.2f}x avg)")
@@ -134,7 +134,7 @@ class NetworkActivityStrategy(BaseStrategy):
             score -= 1
             signals.append(f"Hash rate dropping ({hash_ratio:.2f}x avg)")
 
-        reason_str = "; ".join(signals) if signals else f"Network stable (addr:{addr_ratio:.2f}x, tx:{tx_ratio:.2f}x, hash:{hash_ratio:.2f}x)"
+        reason_str = "; ".join(signals) if signals else f"Network stable (addr:{addr_ratio:.2f}x, tx:{tx_ratio:.2f}x, hp:{hash_ratio:.2f}x)"
 
         if score >= 2:
             return TradeRecommendation(
