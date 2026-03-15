@@ -321,19 +321,28 @@ class SignalModel:
             self.model = GradientBoostingClassifier(
                 n_estimators=50,
                 max_depth=3,
-                learning_rate=0.1,
-                min_samples_leaf=10,
-                subsample=0.8,
+                learning_rate=0.05,
+                min_samples_leaf=20,
+                subsample=0.7,
+                max_features=0.8,
                 random_state=42,
             )
 
-            # Use last 80% for training, check accuracy on last 20%
-            split = int(len(X) * 0.8)
+            # Use 70/30 split for more honest accuracy measurement
+            split = int(len(X) * 0.7)
             X_train, X_test = X[:split], X[split:]
             y_train, y_test = y[:split], y[split:]
 
             self.model.fit(X_train, y_train)
             self.accuracy = self.model.score(X_test, y_test)
+
+            # Reject model if accuracy looks too good (overfitting)
+            if self.accuracy > 0.85 and len(clean) < 500:
+                log.warning("ml.likely_overfit", accuracy=round(self.accuracy, 3), samples=len(clean))
+                self.model = None
+                self.is_trained = False
+                return False
+
             self.is_trained = True
             self.train_count = len(samples)
 
