@@ -18,6 +18,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -64,13 +65,16 @@ class AgentLoop:
 
         capital_per_pod = 2500.0  # fixed $2,500 per pod
 
+        # Persistent storage dir (same root as ML learner: data/)
+        data_root = Path(__file__).resolve().parents[2] / "data" / "paper_executor"
+
         self.pods: list[Pod] = []
         self.ml_pod: Pod | None = None  # reference to the ML pod for feeding signals
 
         # Technical pods ($2,500 each)
         for strategy_name in TECHNICAL_STRATEGIES:
             strategy = load_strategy(strategy_name, cfg.strategy.params)
-            executor = PaperExecutor(capital_per_pod)
+            executor = PaperExecutor(capital_per_pod, data_dir=data_root / strategy_name)
             portfolio = PortfolioManager(cfg.risk, executor)
             self.pods.append(Pod(
                 name=strategy_name,
@@ -82,7 +86,7 @@ class AgentLoop:
         # Fundamental pods ($2,500 each)
         for strategy_name in FUNDAMENTAL_STRATEGIES:
             strategy = load_strategy(strategy_name, cfg.strategy.params)
-            executor = PaperExecutor(capital_per_pod)
+            executor = PaperExecutor(capital_per_pod, data_dir=data_root / strategy_name)
             portfolio = PortfolioManager(cfg.risk, executor)
             self.pods.append(Pod(
                 name=strategy_name,
@@ -94,7 +98,7 @@ class AgentLoop:
         # ML Meta-Learner pod ($2,500)
         for strategy_name in ML_STRATEGIES:
             strategy = load_strategy(strategy_name, cfg.strategy.params)
-            executor = PaperExecutor(capital_per_pod)
+            executor = PaperExecutor(capital_per_pod, data_dir=data_root / strategy_name)
             portfolio = PortfolioManager(cfg.risk, executor)
             ml_pod = Pod(
                 name=strategy_name,

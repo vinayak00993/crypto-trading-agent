@@ -26,3 +26,4 @@ data/cache/
 .DS_Store
 Thumbs.db
 data/ml_learner/
+data/paper_executor/

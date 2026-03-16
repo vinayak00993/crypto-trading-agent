@@ -7,9 +7,11 @@ instantly at the current market price (no slippage simulation yet).
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -72,12 +74,18 @@ class PaperExecutor:
         How much simulated capital to start with (in base currency like USDT).
     """
 
-    def __init__(self, starting_balance: float = 10_000.0) -> None:
+    def __init__(self, starting_balance: float = 10_000.0, data_dir: Path | None = None) -> None:
         self.starting_balance = starting_balance
         self.cash: float = starting_balance
         self.positions: dict[str, Position] = {}       # pair → Position
         self.order_history: list[Order] = []
         self._order_counter: int = 0
+        self._data_dir = data_dir
+
+        # Restore state from disk if available
+        if data_dir:
+            data_dir.mkdir(parents=True, exist_ok=True)
+            self._load_state()
 
     # ------------------------------------------------------------------
     # Order execution
@@ -151,6 +159,7 @@ class PaperExecutor:
 
         log.info("executor.buy_filled", **self._order_log(order))
         self.order_history.append(order)
+        self._save_state()
         return order
 
     def sell(self, pair: str, price: float, reason: str = "") -> Order:
@@ -211,6 +220,7 @@ class PaperExecutor:
             **self._order_log(order),
         )
         self.order_history.append(order)
+        self._save_state()
         return order
 
     # ------------------------------------------------------------------
@@ -260,3 +270,120 @@ class PaperExecutor:
             "status": order.status.value,
             "cash_remaining": round(self.cash, 2),
         }
+
+    # ------------------------------------------------------------------
+    # Persistence (atomic writes, same pattern as ML meta-learner)
+    # ------------------------------------------------------------------
+    def _save_state(self) -> None:
+        """Save executor state to disk using atomic writes."""
+        if not self._data_dir:
+            return
+
+        state = {
+            "starting_balance": self.starting_balance,
+            "cash": self.cash,
+            "order_counter": self._order_counter,
+            "positions": {
+                pair: {
+                    "pair": pos.pair,
+                    "quantity": pos.quantity,
+                    "entry_price": pos.entry_price,
+                    "entry_time": pos.entry_time.isoformat(),
+                }
+                for pair, pos in self.positions.items()
+            },
+            "order_history": [
+                {
+                    "id": o.id,
+                    "pair": o.pair,
+                    "side": o.side.value,
+                    "quantity": o.quantity,
+                    "price": o.price,
+                    "cost": o.cost,
+                    "status": o.status.value,
+                    "reason": o.reason,
+                    "timestamp": o.timestamp.isoformat(),
+                }
+                for o in self.order_history
+            ],
+        }
+
+        path = self._data_dir / "state.json"
+        tmp_path = self._data_dir / "state.json.tmp"
+        bak_path = self._data_dir / "state.json.bak"
+
+        try:
+            with open(tmp_path, "w") as f:
+                json.dump(state, f, default=str)
+
+            if path.exists():
+                try:
+                    bak_path.unlink(missing_ok=True)
+                    path.rename(bak_path)
+                except OSError:
+                    pass
+
+            tmp_path.rename(path)
+        except Exception as e:
+            log.warning("executor.save_failed", error=str(e))
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def _load_state(self) -> None:
+        """Restore executor state from disk, with .bak fallback."""
+        if not self._data_dir:
+            return
+
+        path = self._data_dir / "state.json"
+        bak_path = self._data_dir / "state.json.bak"
+
+        data = None
+        for source in [path, bak_path]:
+            if source.exists():
+                try:
+                    with open(source) as f:
+                        data = json.load(f)
+                    if source == bak_path:
+                        log.warning("executor.using_backup")
+                    break
+                except (json.JSONDecodeError, ValueError) as e:
+                    log.warning("executor.corrupt_file", file=source.name, error=str(e))
+
+        if not data:
+            return
+
+        self.starting_balance = data.get("starting_balance", self.starting_balance)
+        self.cash = data.get("cash", self.starting_balance)
+        self._order_counter = data.get("order_counter", 0)
+
+        # Restore positions
+        for pair, pos_data in data.get("positions", {}).items():
+            self.positions[pair] = Position(
+                pair=pos_data["pair"],
+                quantity=pos_data["quantity"],
+                entry_price=pos_data["entry_price"],
+                entry_time=datetime.fromisoformat(pos_data["entry_time"]),
+            )
+
+        # Restore order history
+        for o in data.get("order_history", []):
+            self.order_history.append(Order(
+                id=o["id"],
+                pair=o["pair"],
+                side=OrderSide(o["side"]),
+                quantity=o["quantity"],
+                price=o["price"],
+                cost=o["cost"],
+                status=OrderStatus(o["status"]),
+                reason=o["reason"],
+                timestamp=datetime.fromisoformat(o["timestamp"]),
+            ))
+
+        log.info(
+            "executor.state_restored",
+            cash=round(self.cash, 2),
+            positions=len(self.positions),
+            trades=len(self.order_history),
+        )
