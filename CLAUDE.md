@@ -1,22 +1,5 @@
 # Crypto Trading Agent — Claude Code Context
 
-## User Profile
-- **Name**: Vinayak Rao
-- **GitHub**: github.com/vinayak00993
-- **Setup**: Windows 11, PowerShell, GitHub Desktop
-- **Skill level**: Not a native coder. Always give simple, step-by-step instructions with no assumed knowledge.
-- **Project path**: `~\OneDrive\Desktop\trading agent files\crypto-trading-agent`
-
-## Important Rules for Working with Vinayak
-1. Never use zip files for code delivery
-2. Number every step
-3. Always combine git commands into one line with semicolons
-4. Never refer to "the command from earlier" — always repeat commands in full
-5. Keep instructions under 5 steps when possible
-6. Always specify whether a command runs in PowerShell or browser
-7. Never use PowerShell to edit Python files — it mangles whitespace
-8. Each code block should contain only one thing
-
 ## Deployment
 - **Railway URL**: https://crypto-trading-agent-production.up.railway.app
 - **Railway plan**: Hobby ($5/month), asia-southeast1 region
@@ -123,7 +106,7 @@ External: fear_greed, funding_rate, btc_dominance, btc_24h_change, btc_open_inte
 - Persist circuit breaker state to disk
 - Use limit orders (saves 0.10% per side)
 
-## Git Push Command (always this format)
-```powershell
-cd "$HOME\OneDrive\Desktop\trading agent files\crypto-trading-agent"; git add .; git commit -m "description"; git push
+## Git Push Command
+```bash
+git add . && git commit -m "description" && git push
 ```
