@@ -71,45 +71,25 @@ class RSIStrategy(BaseStrategy):
             "overbought": overbought,
         }
 
-        # RSI crossing below oversold → BUY
+        # RSI crossing below oversold → BUY (only on crossover, not while sitting in zone)
         if current_rsi < oversold and prev_rsi >= oversold:
             confidence = min(1.0, (oversold - current_rsi) / oversold)
             return TradeRecommendation(
                 pair=pair,
                 signal=Signal.BUY,
-                confidence=round(confidence, 2),
+                confidence=max(0.6, round(confidence, 2)),
                 reason=f"RSI crossed below oversold: RSI={current_rsi:.1f} < {oversold}",
                 metadata=metadata,
             )
 
-        # Already oversold → BUY (weaker signal)
-        if current_rsi < oversold:
-            return TradeRecommendation(
-                pair=pair,
-                signal=Signal.BUY,
-                confidence=0.5,
-                reason=f"RSI in oversold zone: RSI={current_rsi:.1f}",
-                metadata=metadata,
-            )
-
-        # RSI crossing above overbought → SELL
+        # RSI crossing above overbought → SELL (only on crossover)
         if current_rsi > overbought and prev_rsi <= overbought:
             confidence = min(1.0, (current_rsi - overbought) / (100 - overbought))
             return TradeRecommendation(
                 pair=pair,
                 signal=Signal.SELL,
-                confidence=round(confidence, 2),
+                confidence=max(0.6, round(confidence, 2)),
                 reason=f"RSI crossed above overbought: RSI={current_rsi:.1f} > {overbought}",
-                metadata=metadata,
-            )
-
-        # Already overbought → SELL (weaker signal)
-        if current_rsi > overbought:
-            return TradeRecommendation(
-                pair=pair,
-                signal=Signal.SELL,
-                confidence=0.5,
-                reason=f"RSI in overbought zone: RSI={current_rsi:.1f}",
                 metadata=metadata,
             )
 

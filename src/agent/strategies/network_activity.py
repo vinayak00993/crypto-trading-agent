@@ -138,19 +138,31 @@ class NetworkActivityStrategy(BaseStrategy):
 
         if score >= 2:
             return TradeRecommendation(
-                pair=pair, signal=Signal.BUY, confidence=0.7,
-                reason=f"Network bullish ({score}/3): {reason_str}",
+                pair=pair, signal=Signal.BUY, confidence=0.75,
+                reason=f"Network strongly bullish ({score}/3): {reason_str}",
+                metadata=metrics,
+            )
+        elif score == 1:
+            return TradeRecommendation(
+                pair=pair, signal=Signal.BUY, confidence=0.55,
+                reason=f"Network leaning bullish ({score}/3): {reason_str}",
                 metadata=metrics,
             )
         elif score <= -2:
             return TradeRecommendation(
-                pair=pair, signal=Signal.SELL, confidence=0.7,
-                reason=f"Network bearish ({score}/3): {reason_str}",
+                pair=pair, signal=Signal.SELL, confidence=0.75,
+                reason=f"Network strongly bearish ({score}/3): {reason_str}",
+                metadata=metrics,
+            )
+        elif score == -1:
+            return TradeRecommendation(
+                pair=pair, signal=Signal.SELL, confidence=0.55,
+                reason=f"Network leaning bearish ({score}/3): {reason_str}",
                 metadata=metrics,
             )
         else:
             return TradeRecommendation(
                 pair=pair, signal=Signal.HOLD, confidence=0.3,
-                reason=f"Network mixed ({score}/3): {reason_str}",
+                reason=f"Network neutral ({score}/3): {reason_str}",
                 metadata=metrics,
             )

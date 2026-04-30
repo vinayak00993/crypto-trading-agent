@@ -436,7 +436,9 @@ class MLMetaLearner(BaseStrategy):
     def __init__(self, params: dict[str, Any] | None = None) -> None:
         params = params or {}
         self.eval_delay = params.get("eval_delay", 20)
-        self.min_confidence = params.get("ml_min_confidence", 0.55)
+        self.min_confidence = params.get("ml_min_confidence", 0.70)  # raised from 0.55 — require strong conviction
+        self.trade_cooldown = params.get("ml_trade_cooldown", 10)  # min ticks between trades per pair
+        self._last_trade_tick: dict[str, int] = {}  # per-pair cooldown tracker
 
         # Core components
         self.memory = PersistentMemory()
@@ -652,9 +654,10 @@ class MLMetaLearner(BaseStrategy):
         buy_pct = buy_score / total_weight
         sell_pct = sell_score / total_weight
 
-        if buy_pct > 0.4 and buy_pct > sell_pct:
+        # Require strong consensus (>60%) before acting — was 40%, caused spam trading
+        if buy_pct > 0.6 and buy_pct > sell_pct:
             return "BUY", buy_pct
-        elif sell_pct > 0.4 and sell_pct > buy_pct:
+        elif sell_pct > 0.6 and sell_pct > buy_pct:
             return "SELL", sell_pct
         return "HOLD", max(buy_pct, sell_pct)
 
@@ -737,6 +740,15 @@ class MLMetaLearner(BaseStrategy):
         # Apply confidence threshold
         if confidence < self.min_confidence:
             signal = Signal.HOLD
+
+        # Enforce per-pair cooldown to prevent rapid-fire trading
+        if signal != Signal.HOLD:
+            last_tick = self._last_trade_tick.get(pair, 0)
+            if self.tick_count - last_tick < self.trade_cooldown:
+                signal = Signal.HOLD
+                reason += f" | COOLDOWN ({self.tick_count - last_tick}/{self.trade_cooldown} ticks)"
+            else:
+                self._last_trade_tick[pair] = self.tick_count
 
         return TradeRecommendation(
             pair=pair, signal=signal, confidence=confidence,
